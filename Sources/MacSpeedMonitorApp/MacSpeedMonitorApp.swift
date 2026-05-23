@@ -1,8 +1,7 @@
+#if os(macOS)
 import SwiftUI
 import SpeedMonitorCore
-#if os(macOS)
 import AppKit
-#endif
 
 @main
 struct MacSpeedMonitorApp: App {
@@ -10,7 +9,6 @@ struct MacSpeedMonitorApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-#if os(macOS)
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
         
@@ -18,7 +16,6 @@ struct MacSpeedMonitorApp: App {
         if let iconImage = NSImage(systemSymbolName: "network", accessibilityDescription: "Speed Monitor") {
             NSApplication.shared.applicationIconImage = iconImage
         }
-#endif
     }
 
     var body: some Scene {
@@ -27,10 +24,8 @@ struct MacSpeedMonitorApp: App {
                 .environmentObject(monitor)
                 .frame(minWidth: 320, minHeight: 180)
                 .onAppear {
-#if os(macOS)
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
-#endif
                     if scenePhase == .active {
                         monitor.startMonitoring()
                     }
@@ -46,9 +41,8 @@ struct MacSpeedMonitorApp: App {
                 monitor.stopMonitoring()
             }
         }
-#if os(macOS)
         .windowResizability(.contentSize)
-#endif
     }
 }
+#endif
 
