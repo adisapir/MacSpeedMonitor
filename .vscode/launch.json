@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:MacSpeedMonitor}",
+            "name": "Debug MacSpeedMonitor",
+            "target": "MacSpeedMonitor",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug MacSpeedMonitor"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:MacSpeedMonitor}",
+            "name": "Release MacSpeedMonitor",
+            "target": "MacSpeedMonitor",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release MacSpeedMonitor"
+        }
+    ]
+}
