@@ -14,14 +14,14 @@ The UI shows:
 ## Run (macOS)
 
 ```bash
-cd "/Users/adisapir/Library/CloudStorage/OneDrive-Personal/Projects/Codex/MacSpeedMonitor"
+cd "/Users/adisapir/Library/CloudStorage/OneDrive-Personal/Projects/Codex/SimpleSpeedMonitor"
 swift run
 ```
 
 ## Build (macOS)
 
 ```bash
-cd "/Users/adisapir/Library/CloudStorage/OneDrive-Personal/Projects/Codex/MacSpeedMonitor"
+cd "/Users/adisapir/Library/CloudStorage/OneDrive-Personal/Projects/Codex/SimpleSpeedMonitor"
 swift build
 ```
 
