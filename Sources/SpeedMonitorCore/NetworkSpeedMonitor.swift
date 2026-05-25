@@ -7,6 +7,9 @@ import OSLog
 public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var downloadBytesPerSecond: Double = 0
     @Published public private(set) var uploadBytesPerSecond: Double = 0
+    @Published public private(set) var totalDownloadBytes: UInt64 = 0
+    @Published public private(set) var totalUploadBytes: UInt64 = 0
+    @Published public private(set) var runtime: TimeInterval = 0
     @Published public private(set) var status: MonitorStatus = .idle
     @Published public private(set) var lastErrorDescription: String?
     @Published public private(set) var lastUpdatedAt: Date?
@@ -15,6 +18,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
     private var previousSnapshot: InterfaceSnapshot?
     private let samplingInterval: TimeInterval
     private var consecutiveFailureCount = 0
+    private var startDate = Date()
 
     private static let logger = Logger(subsystem: "MacSpeedMonitor", category: "NetworkSpeedMonitor")
 
@@ -48,12 +52,17 @@ public final class NetworkSpeedMonitor: ObservableObject {
         if resetValues {
             downloadBytesPerSecond = 0
             uploadBytesPerSecond = 0
+            totalDownloadBytes = 0
+            totalUploadBytes = 0
+            runtime = 0
             previousSnapshot = nil
             lastUpdatedAt = nil
+            startDate = Date()
         }
     }
 
     private func tick() {
+        runtime = Date().timeIntervalSince(startDate)
         switch Self.captureSnapshot() {
         case .failure(let error):
             recordFailure(error)
@@ -94,6 +103,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
         downloadBytesPerSecond = Double(downloadDiff) / deltaTime
         uploadBytesPerSecond = Double(uploadDiff) / deltaTime
+        totalDownloadBytes += downloadDiff
+        totalUploadBytes += uploadDiff
         previousSnapshot = current
         lastUpdatedAt = current.timestamp
         status = .running
