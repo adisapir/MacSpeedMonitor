@@ -58,6 +58,23 @@ public final class NetworkSpeedMonitor: ObservableObject {
         self.activeInterfaces = getNetworkInterfaces()
     }
 
+    private static func isVirtualTunnelInterface(named name: String) -> Bool {
+        let normalizedName = name.lowercased()
+        let virtualTunnelPrefixes = [
+            "utun",
+            "tun",
+            "tap",
+            "ppp",
+            "ipsec",
+            "wg",
+            "tailscale",
+            "zt",
+            "vpn"
+        ]
+
+        return virtualTunnelPrefixes.contains { normalizedName.hasPrefix($0) }
+    }
+
     public func startMonitoring() {
         guard timerCancellable == nil else {
             return
@@ -169,6 +186,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
             let isUp = (flags & IFF_UP) != 0
             let isRunning = (flags & IFF_RUNNING) != 0
             let isLoopback = (flags & IFF_LOOPBACK) != 0
+            let isVirtualTunnel = Self.isVirtualTunnelInterface(named: name)
 
             var addressString: String? = nil
             var familyString = "Unknown"
@@ -197,7 +215,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
             }
 
             // Only display active connections, exclude loopbacks
-            if (familyString == "IPv4" || familyString == "IPv6") && isUp && isRunning && !isLoopback {
+            if (familyString == "IPv4" || familyString == "IPv6") && isUp && isRunning && !isLoopback && !isVirtualTunnel {
                 var linkSpeed: String? = nil
                 var txRate: Double? = nil
                 var rxRate: Double? = nil
