@@ -569,40 +569,60 @@ struct DashboardView: View {
 
 struct NetworkInfoView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
-    @State private var interfaces: [NetworkInterfaceInfo] = []
     
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Network Interfaces")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    Text("Current active hardware and software addresses")
+                // Header with dynamic label and refresh button
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Network Interfaces")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        Text("Current active hardware connections")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        monitor.refreshInterfaces()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Refresh")
+                        }
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.white.opacity(0.1))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal)
                 .padding(.top, 16)
                 
-                if interfaces.isEmpty {
+                if monitor.activeInterfaces.isEmpty {
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("Querying network adapters...")
+                        Text("Querying active adapters...")
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 40)
                 } else {
                     VStack(spacing: 12) {
-                        ForEach(interfaces) { info in
+                        ForEach(monitor.activeInterfaces) { info in
                             GlassCard(glowColor: info.isUp ? .green : .gray) {
                                 HStack(spacing: 16) {
-                                    Image(systemName: info.isLoopback ? "arrow.counterclockwise.circle.fill" : "network")
+                                    Image(systemName: info.wifiMode != nil ? "wifi" : "network")
                                         .font(.title)
                                         .foregroundStyle(info.isUp ? .green : .secondary)
                                     
-                                    VStack(alignment: .leading, spacing: 4) {
+                                    VStack(alignment: .leading, spacing: 6) {
                                         HStack {
                                             Text(info.name)
                                                 .font(.headline)
@@ -619,49 +639,56 @@ struct NetworkInfoView: View {
                                                 .cornerRadius(4)
                                         }
                                         
-                                        // Display Connection Speed First
-                                        if let linkSpeed = info.linkSpeed {
-                                            HStack(spacing: 6) {
-                                                Image(systemName: "speedometer")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.orange)
-                                                Text("Connection Speed: \(linkSpeed)")
+                                        // 1. IP Address
+                                        if let address = info.address {
+                                            HStack(spacing: 4) {
+                                                Text("IP Address:")
                                                     .font(.subheadline)
                                                     .fontWeight(.semibold)
+                                                    .foregroundStyle(.secondary)
+                                                Text(address)
+                                                    .font(.system(.subheadline, design: .monospaced))
                                                     .foregroundStyle(.primary)
                                             }
-                                            .padding(.vertical, 2)
                                         }
                                         
-                                        if let address = info.address {
-                                            Text("IP: \(address)")
-                                                .font(.system(.subheadline, design: .monospaced))
-                                                .foregroundStyle(.secondary)
+                                        // 2. Tx/Rx rates (Wireless: negotiated link rate, Wired: Link Speed)
+                                        if let tx = info.txRate {
+                                            HStack(spacing: 4) {
+                                                Text("Link Rate:")
+                                                    .font(.subheadline)
+                                                    .fontWeight(.semibold)
+                                                    .foregroundStyle(.secondary)
+                                                Text(String(format: "%.0f Mbps", tx))
+                                                    .font(.system(.subheadline, design: .monospaced))
+                                                    .foregroundStyle(.primary)
+                                            }
+                                        } else if let linkSpeed = info.linkSpeed {
+                                            HStack(spacing: 4) {
+                                                Text("Link Speed:")
+                                                    .font(.subheadline)
+                                                    .fontWeight(.semibold)
+                                                    .foregroundStyle(.secondary)
+                                                Text(linkSpeed)
+                                                    .font(.system(.subheadline, design: .monospaced))
+                                                    .foregroundStyle(.primary)
+                                            }
                                         }
                                         
-                                        HStack(spacing: 12) {
-                                            HStack(spacing: 4) {
-                                                Circle()
-                                                    .fill(info.isUp ? .green : .red)
-                                                    .frame(width: 6, height: 6)
-                                                Text(info.isUp ? "Up" : "Down")
+                                        // 3. Wi-Fi mode (only if wireless connection)
+                                        if let wifiMode = info.wifiMode {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "wifi")
                                                     .font(.caption)
+                                                    .foregroundStyle(.blue)
+                                                Text("Wi-Fi Mode:")
+                                                    .font(.subheadline)
+                                                    .fontWeight(.semibold)
                                                     .foregroundStyle(.secondary)
-                                            }
-                                            
-                                            HStack(spacing: 4) {
-                                                Circle()
-                                                    .fill(info.isRunning ? .green : .red)
-                                                    .frame(width: 6, height: 6)
-                                                Text(info.isRunning ? "Running" : "Idle")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            
-                                            if info.isLoopback {
-                                                Text("Loopback")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
+                                                Text(wifiMode)
+                                                    .font(.subheadline)
+                                                    .fontWeight(.bold)
+                                                    .foregroundStyle(.blue)
                                             }
                                         }
                                     }
@@ -672,9 +699,6 @@ struct NetworkInfoView: View {
                     .padding(.horizontal)
                 }
             }
-        }
-        .onAppear {
-            interfaces = monitor.getNetworkInterfaces()
         }
     }
 }
@@ -760,6 +784,7 @@ struct AboutView: View {
 struct SettingsView: View {
     @AppStorage("appTheme") private var appTheme: AppTheme = .system
     @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .bytes
+    @AppStorage("historyDurationSeconds") private var historyDurationSeconds: Int = 60
     
     var body: some View {
         ScrollView {
@@ -811,6 +836,34 @@ struct SettingsView: View {
                             .pickerStyle(.segmented)
                             
                             Text("Bytes/s is standard for transfers, while Bits/s (Mbps) matches internet provider speeds.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    
+                    // Chart history duration card
+                    GlassCard(glowColor: .purple) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Throughput History", systemImage: "clock.arrow.circlepath")
+                                .font(.headline)
+                                .foregroundStyle(.purple)
+                            
+                            HStack {
+                                Text("History Duration")
+                                    .font(.body)
+                                Spacer()
+                                Text("\(historyDurationSeconds) seconds")
+                                    .font(.system(.body, design: .monospaced))
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.purple)
+                            }
+                            
+                            Slider(value: Binding(
+                                get: { Double(historyDurationSeconds) },
+                                set: { historyDurationSeconds = Int($0) }
+                             ), in: 30...300, step: 10)
+                            
+                            Text("Set the length of time (from 30 to 300 seconds) recorded in the throughput history chart.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

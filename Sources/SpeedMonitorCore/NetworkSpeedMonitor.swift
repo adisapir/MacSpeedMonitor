@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import Darwin
 import OSLog
+import Network
 
 #if os(macOS)
 import CoreWLAN
@@ -20,12 +21,14 @@ public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var lastErrorDescription: String?
     @Published public private(set) var lastUpdatedAt: Date?
     @Published public private(set) var speedHistory: [SpeedHistoryPoint] = []
+    @Published public private(set) var activeInterfaces: [NetworkInterfaceInfo] = []
 
     private var timerCancellable: AnyCancellable?
     private var previousSnapshot: InterfaceSnapshot?
     private let samplingInterval: TimeInterval
     private var consecutiveFailureCount = 0
     private var startDate = Date()
+    private var pathMonitor: NWPathMonitor?
 
     private static let logger = Logger(subsystem: "MacSpeedMonitor", category: "NetworkSpeedMonitor")
 
@@ -34,6 +37,25 @@ public final class NetworkSpeedMonitor: ObservableObject {
         if case .success(let snapshot) = Self.captureSnapshot() {
             previousSnapshot = snapshot
         }
+        
+        refreshInterfaces()
+        setupPathMonitor()
+    }
+    
+    private func setupPathMonitor() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshInterfaces()
+            }
+        }
+        let queue = DispatchQueue(label: "NetworkPathMonitorQueue")
+        monitor.start(queue: queue)
+        self.pathMonitor = monitor
+    }
+    
+    public func refreshInterfaces() {
+        self.activeInterfaces = getNetworkInterfaces()
     }
 
     public func startMonitoring() {
@@ -174,10 +196,36 @@ public final class NetworkSpeedMonitor: ObservableObject {
                 }
             }
 
-            if familyString == "IPv4" || familyString == "IPv6" {
+            // Only display active connections, exclude loopbacks
+            if (familyString == "IPv4" || familyString == "IPv6") && isUp && isRunning && !isLoopback {
                 var linkSpeed: String? = nil
+                var txRate: Double? = nil
+                var rxRate: Double? = nil
+                var wifiMode: String? = nil
+                
                 #if os(macOS)
                 linkSpeed = getLinkSpeed(interfaceName: name)
+                
+                let client = CWWiFiClient.shared()
+                if let wifiInterface = client.interface(withName: name) {
+                    let tx = wifiInterface.transmitRate()
+                    if tx > 0 { txRate = tx }
+                    // CoreWLAN provides a single negotiated PHY link rate (Tx).
+                    // Rx is symmetric in 802.11, so we display txRate as the link rate.
+                    rxRate = txRate
+                    
+                    let mode = wifiInterface.activePHYMode()
+                    switch mode {
+                    case .mode11a: wifiMode = "Wi-Fi 2"
+                    case .mode11b: wifiMode = "Wi-Fi 1"
+                    case .mode11g: wifiMode = "Wi-Fi 3"
+                    case .mode11n: wifiMode = "Wi-Fi 4"
+                    case .mode11ac: wifiMode = "Wi-Fi 5"
+                    case .mode11ax: wifiMode = "Wi-Fi 6"
+                    case .mode11be: wifiMode = "Wi-Fi 7"
+                    default: wifiMode = "Wi-Fi"
+                    }
+                }
                 #endif
                 
                 interfaces.append(NetworkInterfaceInfo(
@@ -187,7 +235,10 @@ public final class NetworkSpeedMonitor: ObservableObject {
                     isUp: isUp,
                     isRunning: isRunning,
                     isLoopback: isLoopback,
-                    linkSpeed: linkSpeed
+                    linkSpeed: linkSpeed,
+                    txRate: txRate,
+                    rxRate: rxRate,
+                    wifiMode: wifiMode
                 ))
             }
 
@@ -246,9 +297,13 @@ public final class NetworkSpeedMonitor: ObservableObject {
         consecutiveFailureCount = 0
         lastErrorDescription = nil
         
+        let durationSeconds = UserDefaults.standard.integer(forKey: "historyDurationSeconds")
+        let limit = durationSeconds == 0 ? 60 : durationSeconds
+        let historyLimit = max(5, Int(Double(limit) / samplingInterval))
+        
         let point = SpeedHistoryPoint(timestamp: current.timestamp, downloadSpeed: downloadBytesPerSecond, uploadSpeed: uploadBytesPerSecond)
         speedHistory.append(point)
-        if speedHistory.count > 30 {
+        while speedHistory.count > historyLimit {
             speedHistory.removeFirst()
         }
     }

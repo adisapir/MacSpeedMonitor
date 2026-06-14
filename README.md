@@ -15,13 +15,13 @@ A lightweight SwiftUI network speed monitor with a shared core library for macOS
 ## Features
 
 - **Live throughput** — download and upload speed, updated every second
-- **Throughput History Chart** — dual-graphed (download in blue, upload in green) area chart with dynamic Y-axis scaling based on peak speeds (KB/s, MB/s, GB/s, Kbps, Mbps, Gbps)
+- **Throughput History Chart** — dual-graphed (download in blue, upload in green) area chart with configurable duration (30–300 s, default 60 s) and dynamic Y-axis unit scaling
 - **Left Navigation Sidebar** — vertical tabbed navigation with collapsible layout (compact icon-only vs full list titles)
-- **macOS Menu Bar Commands** — integrates Settings menu item (Cmd+,) and About command to switch window views directly
-- **Modern User Interface** — glassmorphic cards ("Liquid Glass" theme) with glowing gradients and hover scaling
-- **Interface Speed & Address Tracking** — queries Wi-Fi transmit rate (via `CoreWLAN`) and Ethernet link speed (via `IOKit`) alongside active IP addresses and adapter flags
+- **macOS Menu Bar Commands** — Settings (Cmd+,) and About commands switch window views directly
+- **Modern User Interface** — glassmorphic "Liquid Glass" cards with glowing gradients, hover scaling, and dark/light/system theme support
+- **Network Interfaces** — active non-loopback adapters only, showing IP address, Wi-Fi link rate (via `CoreWLAN`), wired link speed (via `IOKit`), and friendly Wi-Fi generation label (Wi-Fi 5 through Wi-Fi 7); auto-refreshed via `NWPathMonitor` + manual Refresh button
 - **Dynamic Dock App Icon** — dynamically rendered vector speed logo on startup
-- **Appearance & Unit Settings** — configure appearance theme (Light / Dark / System) and select speed units (Bytes/s vs Bits/s / Mbps)
+- **Appearance & Unit Settings** — configure theme (Light / Dark / Match System), speed units (MB/s vs Mbps), and throughput history duration
 - **Session totals** — cumulative bytes downloaded and uploaded since monitoring started
 - **Runtime counter** — elapsed time displayed as `MM:SS` or `HH:MM:SS`
 - **Status reporting** — `idle`, `running`, `degraded`, or `stopped` states via `MonitorStatus`
