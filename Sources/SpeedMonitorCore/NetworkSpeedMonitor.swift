@@ -23,6 +23,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var lastWiFiScanAt: Date?
     @Published public private(set) var isWiFiScanRefreshing = false
     @Published public private(set) var wifiScanErrorDescription: String?
+    @Published public private(set) var wifiScanRefreshToken = 0
 
     private var timerCancellable: AnyCancellable?
     private var wifiScanTimerCancellable: AnyCancellable?
@@ -84,6 +85,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
             return
         }
 
+        wifiScanRefreshToken += 1
         isWiFiScanRefreshing = true
         wifiScanErrorDescription = nil
 
