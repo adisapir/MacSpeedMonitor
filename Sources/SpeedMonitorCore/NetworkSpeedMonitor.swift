@@ -98,7 +98,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
                 case .success(let networks):
                     self.wifiScanResults = networks
                     self.lastWiFiScanAt = Date()
-                    self.wifiScanErrorDescription = nil
+                    self.wifiScanErrorDescription = Self.wifiScanVisibilityWarning(for: networks)
                 case .failure(let error):
                     self.wifiScanErrorDescription = error.localizedDescription
                 }
@@ -170,9 +170,9 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
         for interface in interfaces {
             do {
-                let scannedNetworks = try interface.scanForNetworks(withSSID: nil)
+                let scannedNetworks = try interface.scanForNetworks(withName: nil, includeHidden: false)
                 for network in scannedNetworks {
-                    let ssid = network.ssid?.isEmpty == false ? network.ssid! : "Hidden Network"
+                    let ssid = displayName(for: network, connectedSSID: connectedSSID)
                     let bssid = network.bssid
                     let channel = network.wlanChannel?.channelNumber ?? 0
                     let band = band(for: network.wlanChannel)
@@ -211,6 +211,36 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
 
         return .success(networks)
+    }
+
+    nonisolated private static func displayName(for network: CWNetwork, connectedSSID: String?) -> String {
+        if let ssid = network.ssid, !ssid.isEmpty {
+            return ssid
+        }
+
+        if let ssidData = network.ssidData {
+            if let utf8SSID = String(data: ssidData, encoding: .utf8), !utf8SSID.isEmpty {
+                return utf8SSID
+            }
+
+            if let latinSSID = String(data: ssidData, encoding: .isoLatin1), !latinSSID.isEmpty {
+                return latinSSID
+            }
+        }
+
+        if let connectedSSID, !connectedSSID.isEmpty, network.bssid == nil {
+            return connectedSSID
+        }
+
+        return "Hidden Network"
+    }
+
+    nonisolated private static func wifiScanVisibilityWarning(for networks: [WiFiNetworkInfo]) -> String? {
+        guard !networks.isEmpty, networks.allSatisfy({ $0.ssid == "Hidden Network" }) else {
+            return nil
+        }
+
+        return "macOS is hiding Wi-Fi names from this app. Enable Location Services permission for MacSpeedMonitor to allow CoreWLAN to return SSID and BSSID details."
     }
 
     nonisolated private static func band(for channel: CWChannel?) -> WiFiNetworkInfo.Band {

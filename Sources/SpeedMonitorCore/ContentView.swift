@@ -959,16 +959,8 @@ private struct WiFiRadarView: View {
 
                 ForEach(networks) { network in
                     let point = radarPoint(for: network, center: center, radius: radius)
-                    Circle()
-                        .fill(bandColor(network.band).opacity(network.isConnected ? 0.95 : 0.78))
-                        .frame(width: dotSize(for: network.rssi), height: dotSize(for: network.rssi))
-                        .overlay(
-                            Circle()
-                                .stroke(network.isConnected ? Color.yellow : .white.opacity(0.18), lineWidth: network.isConnected ? 4 : 1)
-                        )
-                        .shadow(color: bandColor(network.band).opacity(network.isConnected ? 0.8 : 0.32), radius: network.isConnected ? 12 : 5)
+                    WiFiRadarDot(network: network, size: dotSize(for: network.rssi))
                         .position(point)
-                        .accessibilityLabel("\(network.ssid), \(network.band.rawValue), \(network.rssi) dBm")
                 }
 
                 if networks.isEmpty {
@@ -1038,6 +1030,86 @@ private struct WiFiRadarView: View {
 
     private func dotSize(for rssi: Int) -> CGFloat {
         8 + normalizedSignal(for: rssi) * 22
+    }
+}
+
+private struct WiFiRadarDot: View {
+    let network: WiFiNetworkInfo
+    let size: CGFloat
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Circle()
+            .fill(bandColor(network.band).opacity(network.isConnected ? 0.95 : 0.78))
+            .frame(width: size, height: size)
+            .overlay(
+                Circle()
+                    .stroke(network.isConnected ? Color.yellow : .white.opacity(isHovered ? 0.5 : 0.18), lineWidth: network.isConnected ? 4 : 1)
+            )
+            .shadow(color: bandColor(network.band).opacity(network.isConnected ? 0.8 : 0.32), radius: isHovered ? 12 : (network.isConnected ? 12 : 5))
+            .scaleEffect(isHovered ? 1.14 : 1)
+            .animation(.easeOut(duration: 0.14), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .popover(isPresented: $isHovered, arrowEdge: .bottom) {
+                WiFiNetworkPopover(network: network)
+                    .padding(12)
+                    .frame(width: 260, alignment: .leading)
+            }
+            .accessibilityLabel("\(network.ssid), \(network.band.rawValue), \(network.rssi) dBm")
+    }
+}
+
+private struct WiFiNetworkPopover: View {
+    let network: WiFiNetworkInfo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(bandColor(network.band))
+                    .frame(width: 10, height: 10)
+                    .overlay(
+                        Circle()
+                            .stroke(network.isConnected ? Color.yellow : .clear, lineWidth: 3)
+                    )
+
+                Text(network.ssid)
+                    .font(.headline)
+                    .lineLimit(2)
+            }
+
+            if network.isConnected {
+                Text("Connected")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.yellow.opacity(0.18))
+                    .foregroundStyle(.yellow)
+                    .cornerRadius(4)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                wifiDetailRow("Band", network.band.rawValue)
+                wifiDetailRow("Channel", "\(network.channel)")
+                wifiDetailRow("Signal", "\(network.rssi) dBm")
+                wifiDetailRow("Security", network.securityDescription)
+            }
+        }
+    }
+
+    private func wifiDetailRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .fontWeight(.medium)
+        }
+        .font(.caption)
     }
 }
 
