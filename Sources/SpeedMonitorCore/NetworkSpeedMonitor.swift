@@ -3,6 +3,12 @@ import Combine
 import Darwin
 import OSLog
 
+#if os(macOS)
+import CoreWLAN
+import IOKit
+import IOKit.network
+#endif
+
 @MainActor
 public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var downloadBytesPerSecond: Double = 0
@@ -63,6 +69,67 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
     }
 
+#if os(macOS)
+    private func getWiFiLinkSpeed(interfaceName: String) -> Double? {
+        let client = CWWiFiClient.shared()
+        if let interface = client.interface(withName: interfaceName) {
+            let rate = interface.transmitRate()
+            if rate > 0 {
+                return rate
+            }
+        }
+        return nil
+    }
+
+    private func getEthernetLinkSpeed(interfaceName: String) -> Double? {
+        let matchingDict = IOBSDNameMatching(kIOMainPortDefault, 0, interfaceName)
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, matchingDict, &iterator) == KERN_SUCCESS else {
+            return nil
+        }
+        defer { IOObjectRelease(iterator) }
+        
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            defer { IOObjectRelease(service) }
+            
+            var parent: io_registry_entry_t = 0
+            if IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) == KERN_SUCCESS {
+                defer { IOObjectRelease(parent) }
+                
+                if let speedRef = IORegistryEntryCreateCFProperty(parent, "current-speed" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue(),
+                   let speedNum = speedRef as? NSNumber {
+                    let speedInBps = speedNum.doubleValue
+                    if speedInBps > 0 {
+                        return speedInBps / 1_000_000.0
+                    }
+                }
+                
+                if let speedRef = IORegistryEntryCreateCFProperty(parent, "max-speed" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue(),
+                   let speedNum = speedRef as? NSNumber {
+                    let speedInBps = speedNum.doubleValue
+                    if speedInBps > 0 {
+                        return speedInBps / 1_000_000.0
+                    }
+                }
+            }
+            
+            service = IOIteratorNext(iterator)
+        }
+        return nil
+    }
+
+    private func getLinkSpeed(interfaceName: String) -> String? {
+        if let wifiSpeed = getWiFiLinkSpeed(interfaceName: interfaceName) {
+            return String(format: "%.0f Mbps (Wi-Fi)", wifiSpeed)
+        }
+        if let ethSpeed = getEthernetLinkSpeed(interfaceName: interfaceName) {
+            return String(format: "%.0f Mbps (Wired)", ethSpeed)
+        }
+        return nil
+    }
+#endif
+
     public func getNetworkInterfaces() -> [NetworkInterfaceInfo] {
         var interfaces = [NetworkInterfaceInfo]()
         var pointer: UnsafeMutablePointer<ifaddrs>?
@@ -108,13 +175,19 @@ public final class NetworkSpeedMonitor: ObservableObject {
             }
 
             if familyString == "IPv4" || familyString == "IPv6" {
+                var linkSpeed: String? = nil
+                #if os(macOS)
+                linkSpeed = getLinkSpeed(interfaceName: name)
+                #endif
+                
                 interfaces.append(NetworkInterfaceInfo(
                     name: name,
                     family: familyString,
                     address: addressString,
                     isUp: isUp,
                     isRunning: isRunning,
-                    isLoopback: isLoopback
+                    isLoopback: isLoopback,
+                    linkSpeed: linkSpeed
                 ))
             }
 

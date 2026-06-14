@@ -122,6 +122,19 @@ struct MacSpeedMonitorApp: App {
                     }
                 }
         }
+        .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About MacSpeedMonitor") {
+                    NotificationCenter.default.post(name: .selectTabNotification, object: ContentView.Tab.about)
+                }
+            }
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings...") {
+                    NotificationCenter.default.post(name: .selectTabNotification, object: ContentView.Tab.settings)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+        }
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {
             case .active:

@@ -1,6 +1,12 @@
 import SwiftUI
 import Charts
 
+// MARK: - Notification Extension
+
+extension Notification.Name {
+    public static let selectTabNotification = Notification.Name("selectTabNotification")
+}
+
 // MARK: - Enums & Models
 
 public enum AppTheme: String, CaseIterable, Identifiable {
@@ -99,6 +105,7 @@ struct GlassCard<Content: View>: View {
 public struct ContentView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
     @State private var selectedTab: Tab = .home
+    @State private var isSidebarCollapsed = false
     @AppStorage("appTheme") private var appTheme: AppTheme = .system
     @State private var showingErrorAlert = false
     @State private var lastErrorMessage: String?
@@ -141,6 +148,11 @@ public struct ContentView: View {
             }
         }
         .preferredColorScheme(appTheme.colorScheme)
+        .onReceive(NotificationCenter.default.publisher(for: .selectTabNotification)) { notification in
+            if let tab = notification.object as? Tab {
+                selectedTab = tab
+            }
+        }
         .onChange(of: monitor.lastErrorDescription) { newError in
             if let desc = newError, monitor.status == .degraded {
                 if lastErrorMessage != desc {
@@ -159,7 +171,7 @@ public struct ContentView: View {
     // MARK: - Sidebar Layout (Left window navigation pane)
     
     private var sidebarView: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: 6) {
             // Title or Header Area
             HStack(spacing: 8) {
                 Image(systemName: "gauge.with.needle.fill")
@@ -171,13 +183,31 @@ public struct ContentView: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                Text("Speed Monitor")
-                    .font(.headline)
-                    .fontWeight(.bold)
+                if !isSidebarCollapsed {
+                    Text("Speed Monitor")
+                        .font(.headline)
+                        .fontWeight(.bold)
+                }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, isSidebarCollapsed ? 0 : 16)
             .padding(.top, 20)
-            .padding(.bottom, 16)
+            .padding(.bottom, 12)
+            
+            // Expand/Collapse Sidebar Toggle
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSidebarCollapsed.toggle()
+                }
+            }) {
+                Image(systemName: isSidebarCollapsed ? "sidebar.right" : "sidebar.left")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .frame(width: isSidebarCollapsed ? 44 : 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, isSidebarCollapsed ? 8 : 12)
+            .padding(.bottom, 8)
             
             // Sidebar Navigation Links
             ForEach(Tab.allCases.filter { $0 != .settings }) { tab in
@@ -188,13 +218,13 @@ public struct ContentView: View {
             
             Divider()
                 .opacity(0.3)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, isSidebarCollapsed ? 8 : 12)
             
             // Settings Button - Bottom of the pane, visually distinct
             sidebarButton(for: .settings, isSettings: true)
                 .padding(.bottom, 16)
         }
-        .frame(width: 200)
+        .frame(width: isSidebarCollapsed ? 60 : 200)
         #if os(macOS)
         .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
         #else
@@ -206,19 +236,24 @@ public struct ContentView: View {
         Button(action: {
             selectedTab = tab
         }) {
-            HStack(spacing: 12) {
+            HStack(spacing: isSidebarCollapsed ? 0 : 12) {
                 Image(systemName: tab.icon)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(selectedTab == tab ? .white : (isSettings ? .orange : .blue))
+                    .frame(width: isSidebarCollapsed ? 44 : 20, height: 32)
                 
-                Text(tab.rawValue)
-                    .font(.body)
-                    .fontWeight(selectedTab == tab ? .medium : .regular)
+                if !isSidebarCollapsed {
+                    Text(tab.rawValue)
+                        .font(.body)
+                        .fontWeight(selectedTab == tab ? .medium : .regular)
+                }
                 
-                Spacer()
+                if !isSidebarCollapsed {
+                    Spacer()
+                }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, isSidebarCollapsed ? 0 : 12)
+            .padding(.vertical, isSidebarCollapsed ? 4 : 8)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -227,7 +262,7 @@ public struct ContentView: View {
             .foregroundStyle(selectedTab == tab ? .white : .primary)
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, isSidebarCollapsed ? 4 : 8)
     }
     
     // MARK: - Main Content Switcher
@@ -255,6 +290,32 @@ public struct ContentView: View {
 struct DashboardView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
     @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .bytes
+    
+    // Y-Axis dynamic scaling based on maximum values in the history
+    private var chartScaleInfo: (factor: Double, label: String) {
+        let maxSpeed = monitor.speedHistory.map { max($0.downloadSpeed, $0.uploadSpeed) }.max() ?? 0
+        
+        if speedUnit == .bits {
+            let maxBits = maxSpeed * 8
+            if maxBits >= 1_000_000_000 {
+                return (1_000_000_000.0 / 8.0, "Gbps")
+            } else if maxBits >= 1_000_000 {
+                return (1_000_000.0 / 8.0, "Mbps")
+            } else {
+                // Minimum limit is Kbps
+                return (1000.0 / 8.0, "Kbps")
+            }
+        } else {
+            if maxSpeed >= 1024 * 1024 * 1024 {
+                return (1024 * 1024 * 1024, "GB/s")
+            } else if maxSpeed >= 1024 * 1024 {
+                return (1024 * 1024, "MB/s")
+            } else {
+                // Minimum limit is KB/s
+                return (1024, "KB/s")
+            }
+        }
+    }
     
     var body: some View {
         ScrollView {
@@ -317,7 +378,8 @@ struct DashboardView: View {
                 
                 // Real-time chart
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Throughput History")
+                    let scale = chartScaleInfo
+                    Text("Throughput History (in \(scale.label))")
                         .font(.headline)
                         .padding(.horizontal)
                     
@@ -335,10 +397,10 @@ struct DashboardView: View {
                         } else {
                             Chart {
                                 ForEach(monitor.speedHistory) { point in
-                                    // Download Area
+                                    // Download Area (Filled with Blue)
                                     AreaMark(
                                         x: .value("Time", point.timestamp),
-                                        y: .value("Download", point.downloadSpeed)
+                                        y: .value("Download", point.downloadSpeed / scale.factor)
                                     )
                                     .foregroundStyle(
                                         LinearGradient(
@@ -351,15 +413,15 @@ struct DashboardView: View {
                                     
                                     LineMark(
                                         x: .value("Time", point.timestamp),
-                                        y: .value("Download", point.downloadSpeed)
+                                        y: .value("Download", point.downloadSpeed / scale.factor)
                                     )
                                     .foregroundStyle(.blue)
                                     .interpolationMethod(.catmullRom)
                                     
-                                    // Upload Area
+                                    // Upload Area (Filled with Green)
                                     AreaMark(
                                         x: .value("Time", point.timestamp),
-                                        y: .value("Upload", point.uploadSpeed)
+                                        y: .value("Upload", point.uploadSpeed / scale.factor)
                                     )
                                     .foregroundStyle(
                                         LinearGradient(
@@ -372,7 +434,7 @@ struct DashboardView: View {
                                     
                                     LineMark(
                                         x: .value("Time", point.timestamp),
-                                        y: .value("Upload", point.uploadSpeed)
+                                        y: .value("Upload", point.uploadSpeed / scale.factor)
                                     )
                                     .foregroundStyle(.green)
                                     .interpolationMethod(.catmullRom)
@@ -555,6 +617,20 @@ struct NetworkInfoView: View {
                                                 .background(Color.blue.opacity(0.15))
                                                 .foregroundStyle(.blue)
                                                 .cornerRadius(4)
+                                        }
+                                        
+                                        // Display Connection Speed First
+                                        if let linkSpeed = info.linkSpeed {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "speedometer")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.orange)
+                                                Text("Connection Speed: \(linkSpeed)")
+                                                    .font(.subheadline)
+                                                    .fontWeight(.semibold)
+                                                    .foregroundStyle(.primary)
+                                            }
+                                            .padding(.vertical, 2)
                                         }
                                         
                                         if let address = info.address {
