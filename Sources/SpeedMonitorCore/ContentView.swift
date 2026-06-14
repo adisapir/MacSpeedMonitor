@@ -288,6 +288,13 @@ private struct SidebarResizeHandle: View {
             .contentShape(Rectangle().inset(by: -4))
             .onHover { hovering in
                 isHovered = hovering
+                #if os(macOS)
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+                #endif
             }
             .gesture(
                 DragGesture(minimumDistance: 0)
