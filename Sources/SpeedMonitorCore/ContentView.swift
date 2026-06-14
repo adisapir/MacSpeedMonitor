@@ -103,9 +103,15 @@ struct GlassCard<Content: View>: View {
 // MARK: - ContentView Shell
 
 public struct ContentView: View {
+    fileprivate static let collapsedSidebarWidth: CGFloat = 60
+    fileprivate static let defaultSidebarWidth: CGFloat = 240
+    fileprivate static let minimumSidebarWidth: CGFloat = 220
+    fileprivate static let maximumSidebarWidth: CGFloat = 340
+
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
     @State private var selectedTab: Tab = .home
     @State private var isSidebarCollapsed = false
+    @State private var sidebarWidth = Self.defaultSidebarWidth
     @AppStorage("appTheme") private var appTheme: AppTheme = .system
     @State private var showingErrorAlert = false
     @State private var lastErrorMessage: String?
@@ -171,60 +177,66 @@ public struct ContentView: View {
     // MARK: - Sidebar Layout (Left window navigation pane)
     
     private var sidebarView: some View {
-        VStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: 6) {
-            // Title or Header Area
-            HStack(spacing: 8) {
-                Image(systemName: "gauge.with.needle.fill")
-                    .font(.title2)
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.blue, .purple],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+        ZStack(alignment: .trailing) {
+            VStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: 6) {
+                // Title or Header Area
+                HStack(spacing: 8) {
+                    Image(systemName: "gauge.with.needle.fill")
+                        .font(.title2)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
                         )
-                    )
-                if !isSidebarCollapsed {
-                    Text("Speed Monitor")
-                        .font(.headline)
-                        .fontWeight(.bold)
+                    if !isSidebarCollapsed {
+                        Text("Speed Monitor")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                    }
                 }
-            }
-            .padding(.horizontal, isSidebarCollapsed ? 0 : 16)
-            .padding(.top, 20)
-            .padding(.bottom, 12)
-            
-            // Expand/Collapse Sidebar Toggle
-            Button(action: {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isSidebarCollapsed.toggle()
+                .padding(.horizontal, isSidebarCollapsed ? 0 : 16)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
+
+                // Expand/Collapse Sidebar Toggle
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSidebarCollapsed.toggle()
+                    }
+                }) {
+                    Image(systemName: isSidebarCollapsed ? "sidebar.right" : "sidebar.left")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .frame(width: isSidebarCollapsed ? 44 : 32, height: 32)
+                        .contentShape(Rectangle())
                 }
-            }) {
-                Image(systemName: isSidebarCollapsed ? "sidebar.right" : "sidebar.left")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .frame(width: isSidebarCollapsed ? 44 : 32, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, isSidebarCollapsed ? 8 : 12)
-            .padding(.bottom, 8)
-            
-            // Sidebar Navigation Links
-            ForEach(Tab.allCases.filter { $0 != .settings }) { tab in
-                sidebarButton(for: tab)
-            }
-            
-            Spacer()
-            
-            Divider()
-                .opacity(0.3)
+                .buttonStyle(.plain)
                 .padding(.horizontal, isSidebarCollapsed ? 8 : 12)
-            
-            // Settings Button - Bottom of the pane, visually distinct
-            sidebarButton(for: .settings, isSettings: true)
-                .padding(.bottom, 16)
+                .padding(.bottom, 8)
+
+                // Sidebar Navigation Links
+                ForEach(Tab.allCases.filter { $0 != .settings }) { tab in
+                    sidebarButton(for: tab)
+                }
+
+                Spacer()
+
+                Divider()
+                    .opacity(0.3)
+                    .padding(.horizontal, isSidebarCollapsed ? 8 : 12)
+
+                // Settings Button - Bottom of the pane
+                sidebarButton(for: .settings)
+                    .padding(.bottom, 16)
+            }
+
+            if !isSidebarCollapsed {
+                SidebarResizeHandle(width: $sidebarWidth)
+            }
         }
-        .frame(width: isSidebarCollapsed ? 60 : 200)
+        .frame(width: isSidebarCollapsed ? Self.collapsedSidebarWidth : sidebarWidth)
         #if os(macOS)
         .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
         #else
@@ -232,36 +244,14 @@ public struct ContentView: View {
         #endif
     }
     
-    private func sidebarButton(for tab: Tab, isSettings: Bool = false) -> some View {
-        Button(action: {
+    private func sidebarButton(for tab: Tab) -> some View {
+        SidebarButton(
+            tab: tab,
+            isSelected: selectedTab == tab,
+            isCollapsed: isSidebarCollapsed
+        ) {
             selectedTab = tab
-        }) {
-            HStack(spacing: isSidebarCollapsed ? 0 : 12) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(selectedTab == tab ? .white : (isSettings ? .orange : .blue))
-                    .frame(width: isSidebarCollapsed ? 44 : 20, height: 32)
-                
-                if !isSidebarCollapsed {
-                    Text(tab.rawValue)
-                        .font(.body)
-                        .fontWeight(selectedTab == tab ? .medium : .regular)
-                }
-                
-                if !isSidebarCollapsed {
-                    Spacer()
-                }
-            }
-            .padding(.horizontal, isSidebarCollapsed ? 0 : 12)
-            .padding(.vertical, isSidebarCollapsed ? 4 : 8)
-            .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(selectedTab == tab ? Color.accentColor : Color.clear)
-            )
-            .foregroundStyle(selectedTab == tab ? .white : .primary)
         }
-        .buttonStyle(.plain)
         .padding(.horizontal, isSidebarCollapsed ? 4 : 8)
     }
     
@@ -282,6 +272,107 @@ public struct ContentView: View {
         }
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.15), value: selectedTab)
+    }
+}
+
+private struct SidebarResizeHandle: View {
+    @Binding var width: CGFloat
+    @State private var dragStartWidth: CGFloat?
+    @State private var isHovered = false
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(isHovered ? 0.18 : 0.08))
+            .frame(width: 3)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle().inset(by: -4))
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if dragStartWidth == nil {
+                            dragStartWidth = width
+                        }
+
+                        let proposedWidth = (dragStartWidth ?? width) + value.translation.width
+                        width = min(
+                            max(proposedWidth, ContentView.minimumSidebarWidth),
+                            ContentView.maximumSidebarWidth
+                        )
+                    }
+                    .onEnded { _ in
+                        dragStartWidth = nil
+                    }
+            )
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+}
+
+private struct SidebarButton: View {
+    let tab: ContentView.Tab
+    let isSelected: Bool
+    let isCollapsed: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: isCollapsed ? 0 : 12) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(isSelected ? .white : .blue)
+                    .frame(width: isCollapsed ? 44 : 20, height: 32)
+
+                if !isCollapsed {
+                    Text(tab.rawValue)
+                        .font(.body)
+                        .fontWeight(isSelected ? .medium : .regular)
+                        .lineLimit(1)
+                }
+
+                if !isCollapsed {
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, isCollapsed ? 0 : 12)
+            .padding(.vertical, isCollapsed ? 4 : 8)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(background)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(.white.opacity(isHovered && !isSelected ? 0.12 : 0), lineWidth: 1)
+            )
+            .foregroundStyle(isSelected ? .white : .primary)
+            .shadow(color: .blue.opacity(isHovered || isSelected ? 0.16 : 0), radius: isHovered ? 8 : 4, x: 0, y: 2)
+            .scaleEffect(isHovered && !isSelected ? 1.02 : 1.0)
+            .offset(x: isHovered && !isSelected && !isCollapsed ? 2 : 0)
+            .animation(.easeOut(duration: 0.16), value: isHovered)
+            .animation(.easeOut(duration: 0.16), value: isSelected)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+
+    private var background: some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(backgroundColor)
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accentColor
+        }
+
+        if isHovered {
+            return Color.primary.opacity(0.08)
+        }
+
+        return Color.clear
     }
 }
 
