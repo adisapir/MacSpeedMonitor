@@ -3,12 +3,9 @@ import Combine
 import Darwin
 import OSLog
 import Network
-
-#if os(macOS)
 import CoreWLAN
 import IOKit
 import IOKit.network
-#endif
 
 @MainActor
 public final class NetworkSpeedMonitor: ObservableObject {
@@ -156,7 +153,6 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
     }
 
-#if os(macOS)
     nonisolated private static func scanWiFiNetworks() -> Result<[WiFiNetworkInfo], WiFiScanError> {
         let client = CWWiFiClient.shared()
         guard let interfaces = client.interfaces(), !interfaces.isEmpty else {
@@ -328,7 +324,6 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
         return nil
     }
-#endif
 
     public func getNetworkInterfaces() -> [NetworkInterfaceInfo] {
         var interfaces = [NetworkInterfaceInfo]()
@@ -382,7 +377,6 @@ public final class NetworkSpeedMonitor: ObservableObject {
                 var rxRate: Double? = nil
                 var wifiMode: String? = nil
                 
-                #if os(macOS)
                 linkSpeed = getLinkSpeed(interfaceName: name)
                 
                 let client = CWWiFiClient.shared()
@@ -405,7 +399,6 @@ public final class NetworkSpeedMonitor: ObservableObject {
                     default: wifiMode = "Wi-Fi"
                     }
                 }
-                #endif
                 
                 interfaces.append(NetworkInterfaceInfo(
                     name: name,

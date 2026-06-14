@@ -31,7 +31,7 @@ Before marking the task complete:
 
 ## Overview
 
-This feature set is about enhancements, settings, and more. It only applies to the MacOS version. The iOS version is currently broken and should not be considered.
+This feature set is about enhancements, settings, and more for the macOS app.
 
 ## Feature Name
 

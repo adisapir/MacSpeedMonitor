@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import AppKit
 
 // MARK: - Notification Extension
 
@@ -34,8 +35,6 @@ public enum SpeedUnit: String, CaseIterable, Identifiable {
 
 // MARK: - Visual Effect View for macOS Translucency
 
-#if os(macOS)
-import AppKit
 struct VisualEffectView: NSViewRepresentable {
     var material: NSVisualEffectView.Material
     var blendingMode: NSVisualEffectView.BlendingMode
@@ -53,13 +52,6 @@ struct VisualEffectView: NSViewRepresentable {
         nsView.blendingMode = blendingMode
     }
 }
-#else
-struct VisualEffectView: View {
-    var body: some View {
-        Color.clear
-    }
-}
-#endif
 
 // MARK: - Glassmorphic Card View
 
@@ -140,11 +132,9 @@ public struct ContentView: View {
     
     public var body: some View {
         ZStack {
-            #if os(macOS)
             // Vibrant Background for macOS
             VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow)
                 .ignoresSafeArea()
-            #endif
             
             HStack(spacing: 0) {
                 // Sidebar / Navigation Pane
@@ -239,11 +229,7 @@ public struct ContentView: View {
             }
         }
         .frame(width: isSidebarCollapsed ? Self.collapsedSidebarWidth : sidebarWidth)
-        #if os(macOS)
         .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
-        #else
-        .background(Color(.systemGroupedBackground))
-        #endif
     }
     
     private func sidebarButton(for tab: Tab) -> some View {
@@ -292,13 +278,11 @@ private struct SidebarResizeHandle: View {
             .contentShape(Rectangle().inset(by: -4))
             .onHover { hovering in
                 isHovered = hovering
-                #if os(macOS)
                 if hovering {
                     NSCursor.resizeLeftRight.push()
                 } else {
                     NSCursor.pop()
                 }
-                #endif
             }
             .gesture(
                 DragGesture(minimumDistance: 0)

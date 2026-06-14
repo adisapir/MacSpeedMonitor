@@ -1,4 +1,3 @@
-#if os(macOS)
 import SwiftUI
 import SpeedMonitorCore
 import AppKit
@@ -185,4 +184,3 @@ struct MacSpeedMonitorApp: App {
         .windowResizability(.contentSize)
     }
 }
-#endif

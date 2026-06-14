@@ -1,16 +1,15 @@
 # SimpleSpeedMonitor
 
-A lightweight SwiftUI network speed monitor with a shared core library for macOS and iOS.
+A lightweight SwiftUI network speed monitor for macOS.
 
 ## Package Structure
 
 | Target | Type | Description |
 |---|---|---|
-| `SpeedMonitorCore` | Library | Reusable monitor + SwiftUI UI, shared across platforms |
+| `SpeedMonitorCore` | Library | Reusable monitor + SwiftUI UI |
 | `MacSpeedMonitorApp` | Executable | macOS app entry point (`swift run`) |
-| `iOSSpeedMonitorApp` | Target | iOS app entry point source for Xcode-based bundling |
 
-**Platform requirements:** macOS 13+, iOS 16+
+**Platform requirements:** macOS 13+
 
 ## Features
 
@@ -40,16 +39,6 @@ swift run
 ```bash
 swift build
 ```
-
-## iOS Setup (Xcode)
-
-1. Open the package in Xcode.
-2. Add a new iOS App target in an Xcode project/workspace.
-3. Link `SpeedMonitorCore` to the iOS app target.
-4. Use `Sources/iOSSpeedMonitorApp/iOSSpeedMonitorApp.swift` as the app entry point.
-5. Select an iOS simulator or device and run.
-
-> **Note:** SwiftPM provides shared code and target structure. iOS deployment still requires an app-bundle target in Xcode (signing, provisioning profile, Info.plist).
 
 ## Clean Rebuild
 

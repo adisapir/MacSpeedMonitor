@@ -5,7 +5,6 @@ let package = Package(
     name: "MacSpeedMonitor",
     platforms: [
         .macOS(.v13),
-        .iOS(.v16),
     ],
     products: [
         .library(name: "SpeedMonitorCore", targets: ["SpeedMonitorCore"]),
@@ -20,11 +19,6 @@ let package = Package(
             name: "MacSpeedMonitorApp",
             dependencies: ["SpeedMonitorCore"],
             path: "Sources/MacSpeedMonitorApp"
-        ),
-        .target(
-            name: "iOSSpeedMonitorApp",
-            dependencies: ["SpeedMonitorCore"],
-            path: "Sources/iOSSpeedMonitorApp"
         ),
     ]
 )
