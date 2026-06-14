@@ -379,9 +379,25 @@ struct DashboardView: View {
                 // Real-time chart
                 VStack(alignment: .leading, spacing: 8) {
                     let scale = chartScaleInfo
-                    Text("Throughput History (in \(scale.label))")
-                        .font(.headline)
-                        .padding(.horizontal)
+                    
+                    // Header with title + inline legend
+                    HStack {
+                        Text("Throughput History (in \(scale.label))")
+                            .font(.headline)
+                        Spacer()
+                        // Inline legend — colors match the Download/Upload speed card labels
+                        HStack(spacing: 12) {
+                            HStack(spacing: 4) {
+                                Circle().fill(Color.blue).frame(width: 8, height: 8)
+                                Text("Download").font(.caption).foregroundStyle(.secondary)
+                            }
+                            HStack(spacing: 4) {
+                                Circle().fill(Color.green).frame(width: 8, height: 8)
+                                Text("Upload").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
                     
                     GlassCard(glowColor: .purple) {
                         if monitor.speedHistory.isEmpty {
@@ -392,19 +408,20 @@ struct DashboardView: View {
                                     .font(.subheadline)
                                 Spacer()
                             }
-                            .frame(height: 120)
+                            .frame(height: 140)
                             .frame(maxWidth: .infinity)
                         } else {
                             Chart {
                                 ForEach(monitor.speedHistory) { point in
-                                    // Download Area (Filled with Blue)
+                                    // Download — blue gradient fill + blue line
                                     AreaMark(
                                         x: .value("Time", point.timestamp),
-                                        y: .value("Download", point.downloadSpeed / scale.factor)
+                                        y: .value("Speed", point.downloadSpeed / scale.factor),
+                                        series: .value("Series", "Download")
                                     )
                                     .foregroundStyle(
                                         LinearGradient(
-                                            colors: [.blue.opacity(0.25), .blue.opacity(0.0)],
+                                            colors: [.blue.opacity(0.30), .blue.opacity(0.0)],
                                             startPoint: .top,
                                             endPoint: .bottom
                                         )
@@ -413,19 +430,22 @@ struct DashboardView: View {
                                     
                                     LineMark(
                                         x: .value("Time", point.timestamp),
-                                        y: .value("Download", point.downloadSpeed / scale.factor)
+                                        y: .value("Speed", point.downloadSpeed / scale.factor),
+                                        series: .value("Series", "Download")
                                     )
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(Color.blue)
+                                    .lineStyle(StrokeStyle(lineWidth: 2))
                                     .interpolationMethod(.catmullRom)
                                     
-                                    // Upload Area (Filled with Green)
+                                    // Upload — green gradient fill + green line
                                     AreaMark(
                                         x: .value("Time", point.timestamp),
-                                        y: .value("Upload", point.uploadSpeed / scale.factor)
+                                        y: .value("Speed", point.uploadSpeed / scale.factor),
+                                        series: .value("Series", "Upload")
                                     )
                                     .foregroundStyle(
                                         LinearGradient(
-                                            colors: [.green.opacity(0.2), .green.opacity(0.0)],
+                                            colors: [.green.opacity(0.25), .green.opacity(0.0)],
                                             startPoint: .top,
                                             endPoint: .bottom
                                         )
@@ -434,26 +454,35 @@ struct DashboardView: View {
                                     
                                     LineMark(
                                         x: .value("Time", point.timestamp),
-                                        y: .value("Upload", point.uploadSpeed / scale.factor)
+                                        y: .value("Speed", point.uploadSpeed / scale.factor),
+                                        series: .value("Series", "Upload")
                                     )
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(Color.green)
+                                    .lineStyle(StrokeStyle(lineWidth: 2))
                                     .interpolationMethod(.catmullRom)
                                 }
                             }
                             .chartYAxis {
-                                AxisMarks(position: .leading)
-                            }
-                            .chartXAxis {
-                                AxisMarks(values: .automatic(desiredCount: 5)) { _ in
-                                    AxisGridLine()
+                                AxisMarks(position: .leading) { _ in
+                                    AxisGridLine().foregroundStyle(.white.opacity(0.1))
                                     AxisTick()
+                                    AxisValueLabel()
                                 }
                             }
-                            .frame(height: 120)
+                            .chartXAxis {
+                                AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                                    AxisGridLine().foregroundStyle(.white.opacity(0.08))
+                                    AxisTick()
+                                    AxisValueLabel(format: .dateTime.hour().minute().second())
+                                }
+                            }
+                            .chartLegend(.hidden) // we use the manual inline legend above
+                            .frame(height: 140)
                         }
                     }
                 }
                 .padding(.horizontal)
+
                 
                 // Session stats
                 VStack(alignment: .leading, spacing: 8) {
