@@ -5,7 +5,6 @@ let package = Package(
     name: "MacSpeedMonitor",
     platforms: [
         .macOS(.v13),
-        .iOS(.v16),
     ],
     products: [
         .library(name: "SpeedMonitorCore", targets: ["SpeedMonitorCore"]),
@@ -19,12 +18,16 @@ let package = Package(
         .executableTarget(
             name: "MacSpeedMonitorApp",
             dependencies: ["SpeedMonitorCore"],
-            path: "Sources/MacSpeedMonitorApp"
-        ),
-        .target(
-            name: "iOSSpeedMonitorApp",
-            dependencies: ["SpeedMonitorCore"],
-            path: "Sources/iOSSpeedMonitorApp"
+            path: "Sources/MacSpeedMonitorApp",
+            exclude: ["Info.plist"],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Sources/MacSpeedMonitorApp/Info.plist",
+                ])
+            ]
         ),
     ]
 )

@@ -1,20 +1,27 @@
 # SimpleSpeedMonitor
 
-A lightweight SwiftUI network speed monitor with a shared core library for macOS and iOS.
+A lightweight SwiftUI network speed monitor for macOS.
 
 ## Package Structure
 
 | Target | Type | Description |
 |---|---|---|
-| `SpeedMonitorCore` | Library | Reusable monitor + SwiftUI UI, shared across platforms |
+| `SpeedMonitorCore` | Library | Reusable monitor + SwiftUI UI |
 | `MacSpeedMonitorApp` | Executable | macOS app entry point (`swift run`) |
-| `iOSSpeedMonitorApp` | Target | iOS app entry point source for Xcode-based bundling |
 
-**Platform requirements:** macOS 13+, iOS 16+
+**Platform requirements:** macOS 13+
 
 ## Features
 
 - **Live throughput** — download and upload speed, updated every second
+- **Throughput History Chart** — dual-graphed (download in blue, upload in green) area chart with configurable duration (30–300 s, default 60 s) and dynamic Y-axis unit scaling
+- **Left Navigation Sidebar** — vertical tabbed navigation with resizable width, hover effects, and collapsible layout (compact icon-only vs full list titles)
+- **macOS Menu Bar Commands** — Settings (Cmd+,) and About commands switch window views directly
+- **Modern User Interface** — glassmorphic "Liquid Glass" cards with glowing gradients, hover scaling, and dark/light/system theme support
+- **Network Interfaces** — active non-loopback adapters only, showing IP address, Wi-Fi link rate (via `CoreWLAN`), wired link speed (via `IOKit`), and friendly Wi-Fi generation label (Wi-Fi 5 through Wi-Fi 7); auto-refreshed via `NWPathMonitor` + manual Refresh button
+- **Wi-Fi Scan Radar** — nearby Wi-Fi networks shown as a radar map with signal-sized dots, 2.4/5/6 GHz band colors, connected-network highlighting, hover detail popovers, manual refresh, and 30 s auto-refresh
+- **Dynamic Dock App Icon** — dynamically rendered vector speed logo on startup
+- **Appearance & Unit Settings** — configure theme (Light / Dark / Match System), speed units (MB/s vs Mbps), and throughput history duration
 - **Session totals** — cumulative bytes downloaded and uploaded since monitoring started
 - **Runtime counter** — elapsed time displayed as `MM:SS` or `HH:MM:SS`
 - **Status reporting** — `idle`, `running`, `degraded`, or `stopped` states via `MonitorStatus`
@@ -34,15 +41,11 @@ swift run
 swift build
 ```
 
-## iOS Setup (Xcode)
+## Wi-Fi Scan Permissions
 
-1. Open the package in Xcode.
-2. Add a new iOS App target in an Xcode project/workspace.
-3. Link `SpeedMonitorCore` to the iOS app target.
-4. Use `Sources/iOSSpeedMonitorApp/iOSSpeedMonitorApp.swift` as the app entry point.
-5. Select an iOS simulator or device and run.
+macOS requires Location Services permission before third-party apps can read Wi-Fi SSID/BSSID details through `CoreWLAN`. Open the Wi-Fi Scan pane to trigger the permission request. If denied, enable Location Services for MacSpeedMonitor in System Settings.
 
-> **Note:** SwiftPM provides shared code and target structure. iOS deployment still requires an app-bundle target in Xcode (signing, provisioning profile, Info.plist).
+The SwiftPM executable embeds `Sources/MacSpeedMonitorApp/Info.plist` at link time so the location usage description is available when running with `swift run`.
 
 ## Clean Rebuild
 

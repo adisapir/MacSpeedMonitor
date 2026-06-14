@@ -1,33 +1,158 @@
 import SwiftUI
+import Charts
+import AppKit
+
+// MARK: - Notification Extension
+
+extension Notification.Name {
+    public static let selectTabNotification = Notification.Name("selectTabNotification")
+}
+
+// MARK: - Enums & Models
+
+public enum AppTheme: String, CaseIterable, Identifiable {
+    case system = "Match System Settings"
+    case light = "Light"
+    case dark = "Dark"
+    
+    public var id: String { self.rawValue }
+    
+    public var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
+public enum SpeedUnit: String, CaseIterable, Identifiable {
+    case bytes = "Bytes/s (MB/s)"
+    case bits = "Bits/s (Mbps)"
+    
+    public var id: String { self.rawValue }
+}
+
+// MARK: - Visual Effect View for macOS Translucency
+
+struct VisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material
+    var blendingMode: NSVisualEffectView.BlendingMode
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+    }
+}
+
+// MARK: - Glassmorphic Card View
+
+struct GlassCard<Content: View>: View {
+    var content: Content
+    var glowColor: Color
+    @State private var isHovered = false
+    
+    init(glowColor: Color = .blue, @ViewBuilder content: () -> Content) {
+        self.content = content()
+        self.glowColor = glowColor
+    }
+    
+    var body: some View {
+        content
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.white.opacity(isHovered ? 0.08 : 0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [.white.opacity(0.15), .white.opacity(0.02)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: glowColor.opacity(isHovered ? 0.2 : 0.1), radius: isHovered ? 12 : 8, x: 0, y: 4)
+            .scaleEffect(isHovered ? 1.01 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
+// MARK: - ContentView Shell
 
 public struct ContentView: View {
+    fileprivate static let collapsedSidebarWidth: CGFloat = 60
+    fileprivate static let defaultSidebarWidth: CGFloat = 240
+    fileprivate static let minimumSidebarWidth: CGFloat = 220
+    fileprivate static let maximumSidebarWidth: CGFloat = 340
+
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
+    @State private var selectedTab: Tab = .home
+    @State private var isSidebarCollapsed = false
+    @State private var sidebarWidth = Self.defaultSidebarWidth
+    @AppStorage("appTheme") private var appTheme: AppTheme = .system
     @State private var showingErrorAlert = false
     @State private var lastErrorMessage: String?
-
+    
+    public enum Tab: String, CaseIterable, Identifiable {
+        case home = "Home"
+        case networkInfo = "Network information"
+        case wifiScan = "Wi-Fi Scan"
+        case about = "About"
+        case settings = "Settings"
+        
+        public var id: String { self.rawValue }
+        
+        var icon: String {
+            switch self {
+            case .home: return "house.fill"
+            case .networkInfo: return "network"
+            case .wifiScan: return "wifi"
+            case .about: return "info.circle.fill"
+            case .settings: return "gearshape.fill"
+            }
+        }
+    }
+    
     public init() {}
-
+    
     public var body: some View {
         ZStack {
-            VStack(spacing: 20) {
-                Text("Network Speed")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-
-                speedRow(title: "Download", value: monitor.downloadBytesPerSecond, color: .blue)
-                speedRow(title: "Upload", value: monitor.uploadBytesPerSecond, color: .green)
-
-                Divider()
-                    .opacity(0.5)
-
-                sessionStatsSection
-
-                statusRow
+            // Vibrant Background for macOS
+            VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow)
+                .ignoresSafeArea()
+            
+            HStack(spacing: 0) {
+                // Sidebar / Navigation Pane
+                sidebarView
+                
+                // Content area
+                contentView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(24)
         }
-        .onChange(of: monitor.lastErrorDescription) { _ in
-            if let desc = monitor.lastErrorDescription, monitor.status == .degraded {
+        .preferredColorScheme(appTheme.colorScheme)
+        .onReceive(NotificationCenter.default.publisher(for: .selectTabNotification)) { notification in
+            if let tab = notification.object as? Tab {
+                selectedTab = tab
+            }
+        }
+        .onChange(of: monitor.lastErrorDescription) { newError in
+            if let desc = newError, monitor.status == .degraded {
                 if lastErrorMessage != desc {
                     lastErrorMessage = desc
                     showingErrorAlert = true
@@ -40,105 +165,511 @@ public struct ContentView: View {
             Text(monitor.lastErrorDescription ?? "Unknown error.")
         }
     }
+    
+    // MARK: - Sidebar Layout (Left window navigation pane)
+    
+    private var sidebarView: some View {
+        ZStack(alignment: .trailing) {
+            VStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: 6) {
+                // Title or Header Area
+                HStack(spacing: 8) {
+                    Image(systemName: "gauge.with.needle.fill")
+                        .font(.title2)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    if !isSidebarCollapsed {
+                        Text("Speed Monitor")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                    }
+                }
+                .padding(.horizontal, isSidebarCollapsed ? 0 : 16)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
 
-    // MARK: - Session Statistics
+                // Expand/Collapse Sidebar Toggle
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSidebarCollapsed.toggle()
+                    }
+                }) {
+                    Image(systemName: isSidebarCollapsed ? "sidebar.right" : "sidebar.left")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .frame(width: isSidebarCollapsed ? 44 : 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, isSidebarCollapsed ? 8 : 12)
+                .padding(.bottom, 8)
 
-    private var sessionStatsSection: some View {
-        VStack(spacing: 10) {
-            Text("Session")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(1)
+                // Sidebar Navigation Links
+                ForEach(Tab.allCases.filter { $0 != .settings }) { tab in
+                    sidebarButton(for: tab)
+                }
 
-            HStack(spacing: 16) {
-                totalItem(
-                    title: "Downloaded",
-                    value: formatBytes(monitor.totalDownloadBytes),
-                    icon: "arrow.down.circle",
-                    color: .blue
-                )
+                Spacer()
 
-                totalItem(
-                    title: "Uploaded",
-                    value: formatBytes(monitor.totalUploadBytes),
-                    icon: "arrow.up.circle",
-                    color: .green
-                )
+                Divider()
+                    .opacity(0.3)
+                    .padding(.horizontal, isSidebarCollapsed ? 8 : 12)
+
+                // Settings Button - Bottom of the pane
+                sidebarButton(for: .settings)
+                    .padding(.bottom, 16)
             }
 
-            HStack(spacing: 4) {
-                Image(systemName: "clock")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text(formatRuntime(monitor.runtime))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
+            if !isSidebarCollapsed {
+                SidebarResizeHandle(width: $sidebarWidth)
             }
+        }
+        .frame(width: isSidebarCollapsed ? Self.collapsedSidebarWidth : sidebarWidth)
+        .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
+    }
+    
+    private func sidebarButton(for tab: Tab) -> some View {
+        SidebarButton(
+            tab: tab,
+            isSelected: selectedTab == tab,
+            isCollapsed: isSidebarCollapsed
+        ) {
+            selectedTab = tab
+        }
+        .padding(.horizontal, isSidebarCollapsed ? 4 : 8)
+    }
+    
+    // MARK: - Main Content Switcher
+    
+    private var contentView: some View {
+        ZStack {
+            switch selectedTab {
+            case .home:
+                DashboardView()
+            case .networkInfo:
+                NetworkInfoView()
+            case .wifiScan:
+                WiFiScanView()
+            case .about:
+                AboutView()
+            case .settings:
+                SettingsView()
+            }
+        }
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.15), value: selectedTab)
+    }
+}
+
+private struct SidebarResizeHandle: View {
+    @Binding var width: CGFloat
+    @State private var dragStartWidth: CGFloat?
+    @State private var isHovered = false
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(isHovered ? 0.18 : 0.08))
+            .frame(width: 3)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle().inset(by: -4))
+            .onHover { hovering in
+                isHovered = hovering
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if dragStartWidth == nil {
+                            dragStartWidth = width
+                        }
+
+                        let proposedWidth = (dragStartWidth ?? width) + value.translation.width
+                        width = min(
+                            max(proposedWidth, ContentView.minimumSidebarWidth),
+                            ContentView.maximumSidebarWidth
+                        )
+                    }
+                    .onEnded { _ in
+                        dragStartWidth = nil
+                    }
+            )
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+}
+
+private struct SidebarButton: View {
+    let tab: ContentView.Tab
+    let isSelected: Bool
+    let isCollapsed: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: isCollapsed ? 0 : 12) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(isSelected ? .white : .blue)
+                    .frame(width: isCollapsed ? 44 : 20, height: 32)
+
+                if !isCollapsed {
+                    Text(tab.rawValue)
+                        .font(.body)
+                        .fontWeight(isSelected ? .medium : .regular)
+                        .lineLimit(1)
+                }
+
+                if !isCollapsed {
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, isCollapsed ? 0 : 12)
+            .padding(.vertical, isCollapsed ? 4 : 8)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(background)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(.white.opacity(isHovered && !isSelected ? 0.12 : 0), lineWidth: 1)
+            )
+            .foregroundStyle(isSelected ? .white : .primary)
+            .shadow(color: .blue.opacity(isHovered || isSelected ? 0.16 : 0), radius: isHovered ? 8 : 4, x: 0, y: 2)
+            .scaleEffect(isHovered && !isSelected ? 1.02 : 1.0)
+            .offset(x: isHovered && !isSelected && !isCollapsed ? 2 : 0)
+            .animation(.easeOut(duration: 0.16), value: isHovered)
+            .animation(.easeOut(duration: 0.16), value: isSelected)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
         }
     }
 
-    private func totalItem(title: String, value: String, icon: String, color: Color) -> some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.caption2)
-                    .foregroundStyle(color.opacity(0.7))
+    private var background: some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(backgroundColor)
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accentColor
+        }
+
+        if isHovered {
+            return Color.primary.opacity(0.08)
+        }
+
+        return Color.clear
+    }
+}
+
+private struct RefreshButton: View {
+    let title: String
+    let isRefreshing: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.clockwise")
+                    .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                    .animation(isRefreshing ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                Text(title)
+            }
+            .font(.subheadline)
+            .fontWeight(.medium)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.white.opacity(0.1))
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .disabled(isRefreshing)
+        .opacity(isRefreshing ? 0.72 : 1)
+    }
+}
+
+// MARK: - Dashboard View (Home Tab)
+
+struct DashboardView: View {
+    @EnvironmentObject private var monitor: NetworkSpeedMonitor
+    @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .bytes
+    
+    // Y-Axis dynamic scaling based on maximum values in the history
+    private var chartScaleInfo: (factor: Double, label: String) {
+        let maxSpeed = monitor.speedHistory.map { max($0.downloadSpeed, $0.uploadSpeed) }.max() ?? 0
+        
+        if speedUnit == .bits {
+            let maxBits = maxSpeed * 8
+            if maxBits >= 1_000_000_000 {
+                return (1_000_000_000.0 / 8.0, "Gbps")
+            } else if maxBits >= 1_000_000 {
+                return (1_000_000.0 / 8.0, "Mbps")
+            } else {
+                // Minimum limit is Kbps
+                return (1000.0 / 8.0, "Kbps")
+            }
+        } else {
+            if maxSpeed >= 1024 * 1024 * 1024 {
+                return (1024 * 1024 * 1024, "GB/s")
+            } else if maxSpeed >= 1024 * 1024 {
+                return (1024 * 1024, "MB/s")
+            } else {
+                // Minimum limit is KB/s
+                return (1024, "KB/s")
+            }
+        }
+    }
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Title Area
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Network Speed Dashboard")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    Text("Real-time network throughput and statistics")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal)
+                .padding(.top, 16)
+                
+                // Speed Cards
+                HStack(spacing: 16) {
+                    // Download Card
+                    GlassCard(glowColor: .blue) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Label("Download", systemImage: "arrow.down.circle.fill")
+                                    .font(.headline)
+                                    .foregroundStyle(.blue)
+                                Spacer()
+                                Circle()
+                                    .fill(monitor.status == .running ? .green : .orange)
+                                    .frame(width: 8, height: 8)
+                            }
+                            
+                            Text(formatSpeed(monitor.downloadBytesPerSecond))
+                                .font(.system(size: 28, weight: .bold, design: .monospaced))
+                                .contentTransition(.numericText())
+                                .minimumScaleFactor(0.5)
+                        }
+                    }
+                    
+                    // Upload Card
+                    GlassCard(glowColor: .green) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Label("Upload", systemImage: "arrow.up.circle.fill")
+                                    .font(.headline)
+                                    .foregroundStyle(.green)
+                                Spacer()
+                                Circle()
+                                    .fill(monitor.status == .running ? .green : .orange)
+                                    .frame(width: 8, height: 8)
+                            }
+                            
+                            Text(formatSpeed(monitor.uploadBytesPerSecond))
+                                .font(.system(size: 28, weight: .bold, design: .monospaced))
+                                .contentTransition(.numericText())
+                                .minimumScaleFactor(0.5)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+                
+                // Real-time chart
+                VStack(alignment: .leading, spacing: 8) {
+                    let scale = chartScaleInfo
+                    
+                    // Header with title + inline legend
+                    HStack {
+                        Text("Throughput History (in \(scale.label))")
+                            .font(.headline)
+                        Spacer()
+                        // Inline legend — colors match the Download/Upload speed card labels
+                        HStack(spacing: 12) {
+                            HStack(spacing: 4) {
+                                Circle().fill(Color.blue).frame(width: 8, height: 8)
+                                Text("Download").font(.caption).foregroundStyle(.secondary)
+                            }
+                            HStack(spacing: 4) {
+                                Circle().fill(Color.green).frame(width: 8, height: 8)
+                                Text("Upload").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                    
+                    GlassCard(glowColor: .purple) {
+                        if monitor.speedHistory.isEmpty {
+                            VStack {
+                                Spacer()
+                                Text("No throughput data yet")
+                                    .foregroundStyle(.secondary)
+                                    .font(.subheadline)
+                                Spacer()
+                            }
+                            .frame(height: 140)
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            Chart {
+                                ForEach(monitor.speedHistory) { point in
+                                    // Download — blue gradient fill + blue line
+                                    AreaMark(
+                                        x: .value("Time", point.timestamp),
+                                        y: .value("Speed", point.downloadSpeed / scale.factor),
+                                        series: .value("Series", "Download")
+                                    )
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            colors: [.blue.opacity(0.30), .blue.opacity(0.0)],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                                    .interpolationMethod(.catmullRom)
+                                    
+                                    LineMark(
+                                        x: .value("Time", point.timestamp),
+                                        y: .value("Speed", point.downloadSpeed / scale.factor),
+                                        series: .value("Series", "Download")
+                                    )
+                                    .foregroundStyle(Color.blue)
+                                    .lineStyle(StrokeStyle(lineWidth: 2))
+                                    .interpolationMethod(.catmullRom)
+                                    
+                                    // Upload — green gradient fill + green line
+                                    AreaMark(
+                                        x: .value("Time", point.timestamp),
+                                        y: .value("Speed", point.uploadSpeed / scale.factor),
+                                        series: .value("Series", "Upload")
+                                    )
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            colors: [.green.opacity(0.25), .green.opacity(0.0)],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                                    .interpolationMethod(.catmullRom)
+                                    
+                                    LineMark(
+                                        x: .value("Time", point.timestamp),
+                                        y: .value("Speed", point.uploadSpeed / scale.factor),
+                                        series: .value("Series", "Upload")
+                                    )
+                                    .foregroundStyle(Color.green)
+                                    .lineStyle(StrokeStyle(lineWidth: 2))
+                                    .interpolationMethod(.catmullRom)
+                                }
+                            }
+                            .chartYAxis {
+                                AxisMarks(position: .leading) { _ in
+                                    AxisGridLine().foregroundStyle(.white.opacity(0.1))
+                                    AxisTick()
+                                    AxisValueLabel()
+                                }
+                            }
+                            .chartXAxis {
+                                AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                                    AxisGridLine().foregroundStyle(.white.opacity(0.08))
+                                    AxisTick()
+                                    AxisValueLabel(format: .dateTime.hour().minute().second())
+                                }
+                            }
+                            .chartLegend(.hidden) // we use the manual inline legend above
+                            .frame(height: 140)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+
+                
+                // Session stats
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Session Statistics")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    GlassCard(glowColor: .blue) {
+                        HStack(spacing: 24) {
+                            statItem(title: "Downloaded", value: formatBytes(monitor.totalDownloadBytes), icon: "arrow.down.circle.fill", color: .blue)
+                            statItem(title: "Uploaded", value: formatBytes(monitor.totalUploadBytes), icon: "arrow.up.circle.fill", color: .green)
+                            statItem(title: "Runtime", value: formatRuntime(monitor.runtime), icon: "clock.fill", color: .purple)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+                
+                // Monitor status row
+                HStack {
+                    Text("Status: \(monitor.status.rawValue.capitalized)")
+                        .font(.footnote)
+                        .foregroundStyle(monitor.status == .degraded ? .orange : .secondary)
+                    Spacer()
+                    if let error = monitor.lastErrorDescription {
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 20)
+            }
+        }
+    }
+    
+    private func statItem(title: String, value: String, icon: String, color: Color) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(color)
+            
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-            }
-            Text(value)
-                .font(.system(.caption, design: .monospaced))
-                .fontWeight(.medium)
-                .foregroundStyle(.primary.opacity(0.8))
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    // MARK: - Status
-
-    private var statusRow: some View {
-        VStack(spacing: 6) {
-            Text("Status: \(monitor.status.rawValue.capitalized)")
-                .font(.caption)
-                .foregroundStyle(monitor.status == .degraded ? .orange : .secondary)
-
-            if let message = monitor.lastErrorDescription, monitor.status == .degraded {
-                Text(message)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                Text(value)
+                    .font(.system(.body, design: .monospaced))
+                    .fontWeight(.semibold)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
-
-    // MARK: - Speed Row
-
-    private func speedRow(title: String, value: Double, color: Color) -> some View {
-        HStack {
-            Label(title, systemImage: title == "Download" ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
-                .foregroundStyle(color)
-                .font(.headline)
-
-            Spacer()
-
-            Text(formatBytesPerSecond(value))
-                .font(.system(.title3, design: .monospaced))
-                .fontWeight(.medium)
-        }
-    }
-
+    
     // MARK: - Formatters
-
-    private func formatBytesPerSecond(_ bytesPerSecond: Double) -> String {
+    
+    private func formatSpeed(_ bytesPerSecond: Double) -> String {
         guard bytesPerSecond.isFinite, bytesPerSecond >= 0 else {
-            return "0 KB/s"
+            return speedUnit == .bytes ? "0 KB/s" : "0 Kbps"
         }
-
-        let clampedValue = min(bytesPerSecond, Double(Int64.max))
-        return "\(Self.speedFormatter.string(fromByteCount: Int64(clampedValue)))/s"
+        
+        if speedUnit == .bits {
+            let bitsPerSecond = bytesPerSecond * 8
+            if bitsPerSecond >= 1_000_000_000 {
+                return String(format: "%.2f Gbps", bitsPerSecond / 1_000_000_000.0)
+            } else if bitsPerSecond >= 1_000_000 {
+                return String(format: "%.2f Mbps", bitsPerSecond / 1_000_000.0)
+            } else if bitsPerSecond >= 1000 {
+                return String(format: "%.2f Kbps", bitsPerSecond / 1000.0)
+            } else {
+                return String(format: "%.0f bps", bitsPerSecond)
+            }
+        } else {
+            let clampedValue = min(bytesPerSecond, Double(Int64.max))
+            return "\(Self.speedFormatter.string(fromByteCount: Int64(clampedValue)))/s"
+        }
     }
 
     private func formatBytes(_ bytes: UInt64) -> String {
@@ -173,4 +704,744 @@ public struct ContentView: View {
         formatter.isAdaptive = true
         return formatter
     }()
+}
+
+// MARK: - Network Information View
+
+struct NetworkInfoView: View {
+    @EnvironmentObject private var monitor: NetworkSpeedMonitor
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Header with dynamic label and refresh button
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Network Interfaces")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        Text("Current active hardware connections")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    RefreshButton(title: "Refresh", isRefreshing: false) {
+                        monitor.refreshInterfaces()
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 16)
+                
+                if monitor.activeInterfaces.isEmpty {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Querying active adapters...")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+                } else {
+                    VStack(spacing: 12) {
+                        ForEach(monitor.activeInterfaces) { info in
+                            GlassCard(glowColor: info.isUp ? .green : .gray) {
+                                HStack(spacing: 16) {
+                                    Image(systemName: info.wifiMode != nil ? "wifi" : "network")
+                                        .font(.title)
+                                        .foregroundStyle(info.isUp ? .green : .secondary)
+                                    
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack {
+                                            Text(info.name)
+                                                .font(.headline)
+                                            Spacer()
+                                            
+                                            // Badges
+                                            Text(info.family)
+                                                .font(.caption2)
+                                                .fontWeight(.bold)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.blue.opacity(0.15))
+                                                .foregroundStyle(.blue)
+                                                .cornerRadius(4)
+                                        }
+                                        
+                                        // 1. IP Address
+                                        if let address = info.address {
+                                            HStack(spacing: 4) {
+                                                Text("IP Address:")
+                                                    .font(.subheadline)
+                                                    .fontWeight(.semibold)
+                                                    .foregroundStyle(.secondary)
+                                                Text(address)
+                                                    .font(.system(.subheadline, design: .monospaced))
+                                                    .foregroundStyle(.primary)
+                                            }
+                                        }
+                                        
+                                        // 2. Tx/Rx rates (Wireless: negotiated link rate, Wired: Link Speed)
+                                        if let tx = info.txRate {
+                                            HStack(spacing: 4) {
+                                                Text("Link Rate:")
+                                                    .font(.subheadline)
+                                                    .fontWeight(.semibold)
+                                                    .foregroundStyle(.secondary)
+                                                Text(String(format: "%.0f Mbps", tx))
+                                                    .font(.system(.subheadline, design: .monospaced))
+                                                    .foregroundStyle(.primary)
+                                            }
+                                        } else if let linkSpeed = info.linkSpeed {
+                                            HStack(spacing: 4) {
+                                                Text("Link Speed:")
+                                                    .font(.subheadline)
+                                                    .fontWeight(.semibold)
+                                                    .foregroundStyle(.secondary)
+                                                Text(linkSpeed)
+                                                    .font(.system(.subheadline, design: .monospaced))
+                                                    .foregroundStyle(.primary)
+                                            }
+                                        }
+                                        
+                                        // 3. Wi-Fi mode (only if wireless connection)
+                                        if let wifiMode = info.wifiMode {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "wifi")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.blue)
+                                                Text("Wi-Fi Mode:")
+                                                    .font(.subheadline)
+                                                    .fontWeight(.semibold)
+                                                    .foregroundStyle(.secondary)
+                                                Text(wifiMode)
+                                                    .font(.subheadline)
+                                                    .fontWeight(.bold)
+                                                    .foregroundStyle(.blue)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Wi-Fi Scan View
+
+struct WiFiScanView: View {
+    @EnvironmentObject private var monitor: NetworkSpeedMonitor
+    @StateObject private var locationPermission = LocationPermissionManager()
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Wi-Fi Scan")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        Text("Nearby networks mapped by band and signal strength")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    RefreshButton(title: "Refresh", isRefreshing: monitor.isWiFiScanRefreshing) {
+                        monitor.refreshWiFiScan()
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 16)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 14) {
+                        wifiLegendItem(label: "2.4 GHz", color: bandColor(.twoPointFourGHz))
+                        wifiLegendItem(label: "5 GHz", color: bandColor(.fiveGHz))
+                        wifiLegendItem(label: "6 GHz", color: bandColor(.sixGHz))
+                        Spacer()
+                        if let scanDate = monitor.lastWiFiScanAt {
+                            Text("Updated \(scanDate.formatted(date: .omitted, time: .standard))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    GlassCard(glowColor: .cyan) {
+                        WiFiRadarView(
+                            networks: monitor.wifiScanResults,
+                            isRefreshing: monitor.isWiFiScanRefreshing,
+                            refreshToken: monitor.wifiScanRefreshToken
+                        )
+                            .frame(height: 360)
+                    }
+                }
+                .padding(.horizontal)
+
+                if let guidance = locationPermission.guidanceMessage ?? monitor.wifiScanErrorDescription {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "location.fill")
+                            .foregroundStyle(.orange)
+                        Text(guidance)
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.horizontal)
+                }
+
+                if monitor.wifiScanResults.isEmpty {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .opacity(monitor.isWiFiScanRefreshing ? 1 : 0)
+                        Text(monitor.isWiFiScanRefreshing ? "Scanning nearby networks..." : "No scan results yet")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 20)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Networks")
+                            .font(.headline)
+                            .padding(.horizontal)
+
+                        ForEach(monitor.wifiScanResults.prefix(12)) { network in
+                            WiFiNetworkRow(network: network)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+        .onAppear {
+            locationPermission.requestAuthorizationIfNeeded()
+            monitor.startWiFiScanning()
+        }
+        .onChange(of: locationPermission.canReadWiFiNames) { canReadWiFiNames in
+            if canReadWiFiNames {
+                monitor.refreshWiFiScan()
+            }
+        }
+        .onDisappear {
+            monitor.stopWiFiScanning()
+        }
+    }
+
+    private func wifiLegendItem(label: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct WiFiRadarView: View {
+    private static let sweepDuration: TimeInterval = 1.5
+
+    let networks: [WiFiNetworkInfo]
+    let isRefreshing: Bool
+    let refreshToken: Int
+
+    @State private var isSweepVisible = false
+    @State private var sweepRotation = 0.0
+    @State private var sweepRunID = 0
+    @State private var latestIsRefreshing = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = min(proxy.size.width, proxy.size.height)
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let radius = max(40, size / 2 - 22)
+
+            ZStack {
+                radarBackground(center: center, radius: radius)
+
+                if isSweepVisible {
+                    radarSweep(center: center, radius: radius)
+                }
+
+                ForEach(networks) { network in
+                    let point = radarPoint(for: network, center: center, radius: radius)
+                    WiFiRadarDot(network: network, size: dotSize(for: network.rssi))
+                        .position(point)
+                }
+
+                if networks.isEmpty {
+                    Text("No networks")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onAppear {
+            latestIsRefreshing = isRefreshing
+            if isRefreshing {
+                startSweep()
+            }
+        }
+        .onChange(of: isRefreshing) { newValue in
+            latestIsRefreshing = newValue
+        }
+        .onChange(of: refreshToken) { _ in
+            latestIsRefreshing = isRefreshing
+            startSweep()
+        }
+    }
+
+    private func radarBackground(center: CGPoint, radius: CGFloat) -> some View {
+        ZStack {
+            ForEach(1...4, id: \.self) { index in
+                Circle()
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+                    .frame(width: radius * 2 * CGFloat(index) / 4, height: radius * 2 * CGFloat(index) / 4)
+                    .position(center)
+            }
+
+            Rectangle()
+                .fill(.white.opacity(0.08))
+                .frame(width: 1, height: radius * 2)
+                .position(center)
+
+            Rectangle()
+                .fill(.white.opacity(0.08))
+                .frame(width: radius * 2, height: 1)
+                .position(center)
+
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [.green.opacity(0.16), .clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: radius
+                    )
+                )
+                .frame(width: radius * 2, height: radius * 2)
+                .position(center)
+        }
+    }
+
+    private func radarSweep(center: CGPoint, radius: CGFloat) -> some View {
+        ZStack {
+            RadarSweepShape()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            .green.opacity(0.32),
+                            .green.opacity(0.08),
+                            .clear,
+                        ],
+                        startPoint: .trailing,
+                        endPoint: .leading
+                    )
+                )
+                .frame(width: radius * 2, height: radius * 2)
+
+            Rectangle()
+                .fill(.green.opacity(0.7))
+                .frame(width: radius, height: 2)
+                .offset(x: radius / 2)
+                .shadow(color: .green.opacity(0.2), radius: 4)
+        }
+        .rotationEffect(.degrees(sweepRotation))
+        .position(center)
+        .blendMode(.screen)
+        .transition(.opacity)
+    }
+
+    private func startSweep() {
+        sweepRunID += 1
+        let currentRunID = sweepRunID
+
+        isSweepVisible = true
+        sweepRotation = 0
+        withAnimation(.linear(duration: Self.sweepDuration)) {
+            sweepRotation = 360
+        }
+
+        // Visual-only timing: this task never blocks the CoreWLAN refresh path.
+        Task {
+            let nanoseconds = UInt64(Self.sweepDuration * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            await MainActor.run {
+                guard currentRunID == sweepRunID else {
+                    return
+                }
+
+                if latestIsRefreshing {
+                    startSweep()
+                } else {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        isSweepVisible = false
+                        sweepRotation = 0
+                    }
+                }
+            }
+        }
+    }
+
+    private func radarPoint(for network: WiFiNetworkInfo, center: CGPoint, radius: CGFloat) -> CGPoint {
+        let angle = deterministicAngle(for: network.id)
+        let normalizedSignal = normalizedSignal(for: network.rssi)
+        let distance = radius * (1.0 - (normalizedSignal * 0.72))
+        return CGPoint(
+            x: center.x + cos(angle) * distance,
+            y: center.y + sin(angle) * distance
+        )
+    }
+
+    private func deterministicAngle(for text: String) -> CGFloat {
+        let hash = text.unicodeScalars.reduce(UInt32(2166136261)) { partial, scalar in
+            (partial ^ scalar.value) &* 16777619
+        }
+        return CGFloat(hash % 360) * .pi / 180
+    }
+
+    private func normalizedSignal(for rssi: Int) -> CGFloat {
+        let clampedRSSI = min(max(rssi, -95), -35)
+        return CGFloat(clampedRSSI + 95) / 60
+    }
+
+    private func dotSize(for rssi: Int) -> CGFloat {
+        8 + normalizedSignal(for: rssi) * 22
+    }
+}
+
+private struct RadarSweepShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2
+        var path = Path()
+        path.move(to: center)
+        path.addArc(
+            center: center,
+            radius: radius,
+            startAngle: .degrees(-48),
+            endAngle: .degrees(0),
+            clockwise: false
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct WiFiRadarDot: View {
+    let network: WiFiNetworkInfo
+    let size: CGFloat
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Circle()
+            .fill(bandColor(network.band).opacity(network.isConnected ? 0.95 : 0.78))
+            .frame(width: size, height: size)
+            .overlay(
+                Circle()
+                    .stroke(network.isConnected ? Color.yellow : .white.opacity(isHovered ? 0.5 : 0.18), lineWidth: network.isConnected ? 4 : 1)
+            )
+            .shadow(color: bandColor(network.band).opacity(network.isConnected ? 0.8 : 0.32), radius: isHovered ? 12 : (network.isConnected ? 12 : 5))
+            .scaleEffect(isHovered ? 1.14 : 1)
+            .animation(.easeOut(duration: 0.14), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .popover(isPresented: $isHovered, arrowEdge: .bottom) {
+                WiFiNetworkPopover(network: network)
+                    .padding(12)
+                    .frame(width: 260, alignment: .leading)
+            }
+            .accessibilityLabel("\(network.ssid), \(network.band.rawValue), \(network.rssi) dBm")
+    }
+}
+
+private struct WiFiNetworkPopover: View {
+    let network: WiFiNetworkInfo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(bandColor(network.band))
+                    .frame(width: 10, height: 10)
+                    .overlay(
+                        Circle()
+                            .stroke(network.isConnected ? Color.yellow : .clear, lineWidth: 3)
+                    )
+
+                Text(network.ssid)
+                    .font(.headline)
+                    .lineLimit(2)
+            }
+
+            if network.isConnected {
+                Text("Connected")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.yellow.opacity(0.18))
+                    .foregroundStyle(.yellow)
+                    .cornerRadius(4)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                wifiDetailRow("Band", network.band.rawValue)
+                wifiDetailRow("Channel", "\(network.channel)")
+                wifiDetailRow("Signal", "\(network.rssi) dBm")
+                wifiDetailRow("Security", network.securityDescription)
+            }
+        }
+    }
+
+    private func wifiDetailRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .fontWeight(.medium)
+        }
+        .font(.caption)
+    }
+}
+
+private struct WiFiNetworkRow: View {
+    let network: WiFiNetworkInfo
+
+    var body: some View {
+        GlassCard(glowColor: bandColor(network.band)) {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(bandColor(network.band))
+                    .frame(width: 14, height: 14)
+                    .overlay(
+                        Circle()
+                            .stroke(network.isConnected ? Color.yellow : .clear, lineWidth: 3)
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(network.ssid)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if network.isConnected {
+                            Text("Connected")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.yellow.opacity(0.18))
+                                .foregroundStyle(.yellow)
+                                .cornerRadius(4)
+                        }
+                    }
+
+                    Text("\(network.band.rawValue) • Channel \(network.channel) • \(network.securityDescription)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text("\(network.rssi) dBm")
+                    .font(.system(.subheadline, design: .monospaced))
+                    .fontWeight(.semibold)
+            }
+        }
+    }
+}
+
+private func bandColor(_ band: WiFiNetworkInfo.Band) -> Color {
+    switch band {
+    case .twoPointFourGHz:
+        return .orange
+    case .fiveGHz:
+        return .blue
+    case .sixGHz:
+        return .purple
+    case .unknown:
+        return .gray
+    }
+}
+
+// MARK: - About View
+
+struct AboutView: View {
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            
+            // Dynamic Logo drawing
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [.blue, .purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 100, height: 100)
+                    .shadow(color: .blue.opacity(0.3), radius: 15, x: 0, y: 8)
+                
+                // Speed gauge representation
+                Circle()
+                    .trim(from: 0.15, to: 0.85)
+                    .stroke(.white.opacity(0.3), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .frame(width: 80, height: 80)
+                    .rotationEffect(.degrees(90))
+                
+                Circle()
+                    .trim(from: 0.15, to: 0.6)
+                    .stroke(.white, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .frame(width: 80, height: 80)
+                    .rotationEffect(.degrees(90))
+                
+                // Speedneedle
+                Capsule()
+                    .fill(.orange)
+                    .frame(width: 4, height: 32)
+                    .offset(y: -16)
+                    .rotationEffect(.degrees(35))
+                
+                Circle()
+                    .fill(.orange)
+                    .frame(width: 8, height: 8)
+            }
+            
+            VStack(spacing: 8) {
+                Text("MacSpeedMonitor")
+                    .font(.title)
+                    .fontWeight(.bold)
+                
+                Text("Version 1.1.0")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Text("A real-time networkthroughput metrics, historical chart view, and much more.")
+                .font(.body)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 32)
+            
+            Divider()
+                .opacity(0.3)
+                .padding(.horizontal, 40)
+            
+            VStack(spacing: 10) {
+                Text("Created by Adi Sapir (github.com/adisapir)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            
+            Spacer()
+        }
+    }
+}
+
+// MARK: - Settings View
+
+struct SettingsView: View {
+    @AppStorage("appTheme") private var appTheme: AppTheme = .system
+    @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .bytes
+    @AppStorage("historyDurationSeconds") private var historyDurationSeconds: Int = 60
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Settings")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    Text("Configure appearance and display units")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal)
+                .padding(.top, 16)
+                
+                VStack(spacing: 16) {
+                    // Appearance card
+                    GlassCard(glowColor: .orange) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Appearance", systemImage: "paintbrush.fill")
+                                .font(.headline)
+                                .foregroundStyle(.orange)
+                            
+                            Picker("Theme", selection: $appTheme) {
+                                ForEach(AppTheme.allCases) { theme in
+                                    Text(theme.rawValue).tag(theme)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            
+                            Text("Select whether the app should always match system appearance, or stick to Light or Dark mode.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    
+                    // Measurement unit card
+                    GlassCard(glowColor: .blue) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Data Unit", systemImage: "chart.bar.doc.horizontal.fill")
+                                .font(.headline)
+                                .foregroundStyle(.blue)
+                            
+                            Picker("Unit Selection", selection: $speedUnit) {
+                                ForEach(SpeedUnit.allCases) { unit in
+                                    Text(unit.rawValue).tag(unit)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            
+                            Text("Bytes/s is standard for transfers, while Bits/s (Mbps) matches internet provider speeds.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    
+                    // Chart history duration card
+                    GlassCard(glowColor: .purple) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Throughput History", systemImage: "clock.arrow.circlepath")
+                                .font(.headline)
+                                .foregroundStyle(.purple)
+                            
+                            HStack {
+                                Text("History Duration")
+                                    .font(.body)
+                                Spacer()
+                                Text("\(historyDurationSeconds) seconds")
+                                    .font(.system(.body, design: .monospaced))
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.purple)
+                            }
+                            
+                            Slider(value: Binding(
+                                get: { Double(historyDurationSeconds) },
+                                set: { historyDurationSeconds = Int($0) }
+                             ), in: 30...300, step: 10)
+                            
+                            Text("Set the length of time (from 30 to 300 seconds) recorded in the throughput history chart.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
 }
