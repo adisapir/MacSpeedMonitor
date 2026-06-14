@@ -13,6 +13,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var status: MonitorStatus = .idle
     @Published public private(set) var lastErrorDescription: String?
     @Published public private(set) var lastUpdatedAt: Date?
+    @Published public private(set) var speedHistory: [SpeedHistoryPoint] = []
 
     private var timerCancellable: AnyCancellable?
     private var previousSnapshot: InterfaceSnapshot?
@@ -58,7 +59,68 @@ public final class NetworkSpeedMonitor: ObservableObject {
             previousSnapshot = nil
             lastUpdatedAt = nil
             startDate = Date()
+            speedHistory.removeAll()
         }
+    }
+
+    public func getNetworkInterfaces() -> [NetworkInterfaceInfo] {
+        var interfaces = [NetworkInterfaceInfo]()
+        var pointer: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&pointer) == 0, let first = pointer else {
+            return []
+        }
+        defer { freeifaddrs(pointer) }
+
+        var current: UnsafeMutablePointer<ifaddrs>? = first
+        while let node = current {
+            let interface = node.pointee
+            let name = String(cString: interface.ifa_name)
+            let flags = Int32(interface.ifa_flags)
+
+            let isUp = (flags & IFF_UP) != 0
+            let isRunning = (flags & IFF_RUNNING) != 0
+            let isLoopback = (flags & IFF_LOOPBACK) != 0
+
+            var addressString: String? = nil
+            var familyString = "Unknown"
+
+            if let addr = interface.ifa_addr {
+                let family = addr.pointee.sa_family
+                if family == UInt8(AF_INET) {
+                    familyString = "IPv4"
+                    var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    if getnameinfo(addr, socklen_t(addr.pointee.sa_len), &hostname, socklen_t(hostname.count), nil, 0, NI_NUMERICHOST) == 0 {
+                        addressString = hostname.withUnsafeBufferPointer { ptr in
+                            ptr.baseAddress.map { String(cString: $0) }
+                        }
+                    }
+                } else if family == UInt8(AF_INET6) {
+                    familyString = "IPv6"
+                    var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    if getnameinfo(addr, socklen_t(addr.pointee.sa_len), &hostname, socklen_t(hostname.count), nil, 0, NI_NUMERICHOST) == 0 {
+                        addressString = hostname.withUnsafeBufferPointer { ptr in
+                            ptr.baseAddress.map { String(cString: $0) }
+                        }
+                    }
+                } else if family == UInt8(AF_LINK) {
+                    familyString = "Link"
+                }
+            }
+
+            if familyString == "IPv4" || familyString == "IPv6" {
+                interfaces.append(NetworkInterfaceInfo(
+                    name: name,
+                    family: familyString,
+                    address: addressString,
+                    isUp: isUp,
+                    isRunning: isRunning,
+                    isLoopback: isLoopback
+                ))
+            }
+
+            current = interface.ifa_next
+        }
+        return interfaces
     }
 
     private func tick() {
@@ -110,6 +172,12 @@ public final class NetworkSpeedMonitor: ObservableObject {
         status = .running
         consecutiveFailureCount = 0
         lastErrorDescription = nil
+        
+        let point = SpeedHistoryPoint(timestamp: current.timestamp, downloadSpeed: downloadBytesPerSecond, uploadSpeed: uploadBytesPerSecond)
+        speedHistory.append(point)
+        if speedHistory.count > 30 {
+            speedHistory.removeFirst()
+        }
     }
 
     private func recordFailure(_ error: SnapshotError) {
@@ -173,6 +241,20 @@ public enum MonitorStatus: String {
     case running
     case degraded
     case stopped
+}
+
+public struct SpeedHistoryPoint: Identifiable, Equatable {
+    public let id: UUID
+    public let timestamp: Date
+    public let downloadSpeed: Double
+    public let uploadSpeed: Double
+    
+    public init(id: UUID = UUID(), timestamp: Date, downloadSpeed: Double, uploadSpeed: Double) {
+        self.id = id
+        self.timestamp = timestamp
+        self.downloadSpeed = downloadSpeed
+        self.uploadSpeed = uploadSpeed
+    }
 }
 
 private struct InterfaceSnapshot {

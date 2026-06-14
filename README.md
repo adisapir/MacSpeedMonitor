@@ -15,6 +15,12 @@ A lightweight SwiftUI network speed monitor with a shared core library for macOS
 ## Features
 
 - **Live throughput** — download and upload speed, updated every second
+- **Throughput History Chart** — beautiful realtime area chart displaying the last 30 seconds of speed
+- **Left Navigation Sidebar** — vertical tabbed navigation pane with Home, Network Information, About, and Settings panels
+- **Modern User Interface** — glassmorphic cards ("Liquid Glass" theme) with glowing gradients and hover scaling
+- **Interface Address Tracking** — list active network interfaces with IPv4/IPv6 addresses, flags, and running statuses
+- **Dynamic Dock App Icon** — dynamically rendered vector speed logo on startup
+- **Appearance & Unit Settings** — configure appearance theme (Light / Dark / System) and select speed units (Bytes/s vs Bits/s / Mbps)
 - **Session totals** — cumulative bytes downloaded and uploaded since monitoring started
 - **Runtime counter** — elapsed time displayed as `MM:SS` or `HH:MM:SS`
 - **Status reporting** — `idle`, `running`, `degraded`, or `stopped` states via `MonitorStatus`
