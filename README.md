@@ -15,10 +15,11 @@ A lightweight SwiftUI network speed monitor for macOS.
 
 - **Live throughput** — download and upload speed, updated every second
 - **Throughput History Chart** — dual-graphed (download in blue, upload in green) area chart with configurable duration (30–300 s, default 60 s) and dynamic Y-axis unit scaling
-- **Left Navigation Sidebar** — vertical tabbed navigation with collapsible layout (compact icon-only vs full list titles)
+- **Left Navigation Sidebar** — vertical tabbed navigation with resizable width, hover effects, and collapsible layout (compact icon-only vs full list titles)
 - **macOS Menu Bar Commands** — Settings (Cmd+,) and About commands switch window views directly
 - **Modern User Interface** — glassmorphic "Liquid Glass" cards with glowing gradients, hover scaling, and dark/light/system theme support
 - **Network Interfaces** — active non-loopback adapters only, showing IP address, Wi-Fi link rate (via `CoreWLAN`), wired link speed (via `IOKit`), and friendly Wi-Fi generation label (Wi-Fi 5 through Wi-Fi 7); auto-refreshed via `NWPathMonitor` + manual Refresh button
+- **Wi-Fi Scan Radar** — nearby Wi-Fi networks shown as a radar map with signal-sized dots, 2.4/5/6 GHz band colors, connected-network highlighting, hover detail popovers, manual refresh, and 30 s auto-refresh
 - **Dynamic Dock App Icon** — dynamically rendered vector speed logo on startup
 - **Appearance & Unit Settings** — configure theme (Light / Dark / Match System), speed units (MB/s vs Mbps), and throughput history duration
 - **Session totals** — cumulative bytes downloaded and uploaded since monitoring started
@@ -39,6 +40,12 @@ swift run
 ```bash
 swift build
 ```
+
+## Wi-Fi Scan Permissions
+
+macOS requires Location Services permission before third-party apps can read Wi-Fi SSID/BSSID details through `CoreWLAN`. Open the Wi-Fi Scan pane to trigger the permission request. If denied, enable Location Services for MacSpeedMonitor in System Settings.
+
+The SwiftPM executable embeds `Sources/MacSpeedMonitorApp/Info.plist` at link time so the location usage description is available when running with `swift run`.
 
 ## Clean Rebuild
 

@@ -876,7 +876,7 @@ struct WiFiScanView: View {
                     GlassCard(glowColor: .cyan) {
                         WiFiRadarView(
                             networks: monitor.wifiScanResults,
-                            isScanning: monitor.isWiFiScanRefreshing,
+                            isRefreshing: monitor.isWiFiScanRefreshing,
                             refreshToken: monitor.wifiScanRefreshToken
                         )
                             .frame(height: 360)
@@ -945,16 +945,16 @@ struct WiFiScanView: View {
 }
 
 private struct WiFiRadarView: View {
-    private static let sweepDuration: TimeInterval = 2.5
+    private static let sweepDuration: TimeInterval = 1.5
 
     let networks: [WiFiNetworkInfo]
-    let isScanning: Bool
+    let isRefreshing: Bool
     let refreshToken: Int
 
     @State private var isSweepVisible = false
     @State private var sweepRotation = 0.0
     @State private var sweepRunID = 0
-    @State private var latestIsScanning = false
+    @State private var latestIsRefreshing = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -984,16 +984,16 @@ private struct WiFiRadarView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
-            latestIsScanning = isScanning
-            if isScanning {
+            latestIsRefreshing = isRefreshing
+            if isRefreshing {
                 startSweep()
             }
         }
-        .onChange(of: isScanning) { newValue in
-            latestIsScanning = newValue
+        .onChange(of: isRefreshing) { newValue in
+            latestIsRefreshing = newValue
         }
         .onChange(of: refreshToken) { _ in
-            latestIsScanning = isScanning
+            latestIsRefreshing = isRefreshing
             startSweep()
         }
     }
@@ -1020,7 +1020,7 @@ private struct WiFiRadarView: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        colors: [.cyan.opacity(0.16), .clear],
+                        colors: [.green.opacity(0.16), .clear],
                         center: .center,
                         startRadius: 0,
                         endRadius: radius
@@ -1078,7 +1078,7 @@ private struct WiFiRadarView: View {
                     return
                 }
 
-                if latestIsScanning {
+                if latestIsRefreshing {
                     startSweep()
                 } else {
                     withAnimation(.easeOut(duration: 0.25)) {
