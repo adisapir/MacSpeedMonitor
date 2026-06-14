@@ -787,7 +787,7 @@ struct AboutView: View {
                     .foregroundStyle(.secondary)
             }
             
-            Text("A beautiful, lightweight, modern macOS network speed monitor written entirely in SwiftUI. Features real-time throughput metrics, historical chart view, and interface address tracking.")
+            Text("A real-time networkthroughput metrics, historical chart view, and much more.")
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -798,7 +798,7 @@ struct AboutView: View {
                 .padding(.horizontal, 40)
             
             VStack(spacing: 10) {
-                Text("Made with Liquid Glass design principles.")
+                Text("Created by Adi Sapir (github.com/adisapir)")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
