@@ -22,15 +22,20 @@ public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var lastUpdatedAt: Date?
     @Published public private(set) var speedHistory: [SpeedHistoryPoint] = []
     @Published public private(set) var activeInterfaces: [NetworkInterfaceInfo] = []
+    @Published public private(set) var wifiScanResults: [WiFiNetworkInfo] = []
+    @Published public private(set) var lastWiFiScanAt: Date?
+    @Published public private(set) var isWiFiScanRefreshing = false
+    @Published public private(set) var wifiScanErrorDescription: String?
 
     private var timerCancellable: AnyCancellable?
+    private var wifiScanTimerCancellable: AnyCancellable?
     private var previousSnapshot: InterfaceSnapshot?
     private let samplingInterval: TimeInterval
     private var consecutiveFailureCount = 0
     private var startDate = Date()
     private var pathMonitor: NWPathMonitor?
 
-    private static let logger = Logger(subsystem: "MacSpeedMonitor", category: "NetworkSpeedMonitor")
+    nonisolated private static let logger = Logger(subsystem: "MacSpeedMonitor", category: "NetworkSpeedMonitor")
 
     public init(samplingInterval: TimeInterval = 1.0) {
         self.samplingInterval = max(0.2, samplingInterval)
@@ -56,6 +61,49 @@ public final class NetworkSpeedMonitor: ObservableObject {
     
     public func refreshInterfaces() {
         self.activeInterfaces = getNetworkInterfaces()
+    }
+
+    public func startWiFiScanning(refreshInterval: TimeInterval = 30) {
+        guard wifiScanTimerCancellable == nil else {
+            return
+        }
+
+        refreshWiFiScan()
+        wifiScanTimerCancellable = Timer
+            .publish(every: max(5, refreshInterval), on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.refreshWiFiScan()
+            }
+    }
+
+    public func stopWiFiScanning() {
+        wifiScanTimerCancellable?.cancel()
+        wifiScanTimerCancellable = nil
+    }
+
+    public func refreshWiFiScan() {
+        guard !isWiFiScanRefreshing else {
+            return
+        }
+
+        isWiFiScanRefreshing = true
+        wifiScanErrorDescription = nil
+
+        Task.detached(priority: .userInitiated) {
+            let result = Self.scanWiFiNetworks()
+            await MainActor.run {
+                self.isWiFiScanRefreshing = false
+                switch result {
+                case .success(let networks):
+                    self.wifiScanResults = networks
+                    self.lastWiFiScanAt = Date()
+                    self.wifiScanErrorDescription = nil
+                case .failure(let error):
+                    self.wifiScanErrorDescription = error.localizedDescription
+                }
+            }
+        }
     }
 
     private static func isVirtualTunnelInterface(named name: String) -> Bool {
@@ -109,6 +157,89 @@ public final class NetworkSpeedMonitor: ObservableObject {
     }
 
 #if os(macOS)
+    nonisolated private static func scanWiFiNetworks() -> Result<[WiFiNetworkInfo], WiFiScanError> {
+        let client = CWWiFiClient.shared()
+        guard let interfaces = client.interfaces(), !interfaces.isEmpty else {
+            return .failure(.noWiFiInterface)
+        }
+
+        let connectedSSID = interfaces.compactMap { $0.ssid() }.first
+        let connectedBSSID = interfaces.compactMap { $0.bssid() }.first
+
+        var mergedNetworks: [String: WiFiNetworkInfo] = [:]
+
+        for interface in interfaces {
+            do {
+                let scannedNetworks = try interface.scanForNetworks(withSSID: nil)
+                for network in scannedNetworks {
+                    let ssid = network.ssid?.isEmpty == false ? network.ssid! : "Hidden Network"
+                    let bssid = network.bssid
+                    let channel = network.wlanChannel?.channelNumber ?? 0
+                    let band = band(for: network.wlanChannel)
+                    let isConnected = (bssid != nil && bssid == connectedBSSID)
+                        || (bssid == nil && ssid == connectedSSID)
+                    let info = WiFiNetworkInfo(
+                        ssid: ssid,
+                        bssid: bssid,
+                        rssi: network.rssiValue,
+                        band: band,
+                        channel: channel,
+                        isConnected: isConnected,
+                        securityDescription: "Secured"
+                    )
+
+                    let key = bssid ?? "\(ssid)-\(channel)-\(network.rssiValue)"
+                    if let existing = mergedNetworks[key], existing.rssi >= info.rssi {
+                        continue
+                    }
+                    mergedNetworks[key] = info
+                }
+            } catch {
+                Self.logger.error("Wi-Fi scan failed on \(interface.interfaceName ?? "unknown", privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
+        let networks = mergedNetworks.values.sorted {
+            if $0.isConnected != $1.isConnected {
+                return $0.isConnected
+            }
+            return $0.rssi > $1.rssi
+        }
+
+        if networks.isEmpty {
+            return .failure(.noNetworksFound)
+        }
+
+        return .success(networks)
+    }
+
+    nonisolated private static func band(for channel: CWChannel?) -> WiFiNetworkInfo.Band {
+        guard let channel else {
+            return .unknown
+        }
+
+        switch channel.channelBand {
+        case .band2GHz:
+            return .twoPointFourGHz
+        case .band5GHz:
+            return .fiveGHz
+        case .band6GHz:
+            return .sixGHz
+        default:
+            let number = channel.channelNumber
+            if number >= 1 && number <= 14 {
+                return .twoPointFourGHz
+            }
+            if number >= 32 && number <= 177 {
+                return .fiveGHz
+            }
+            if number >= 1 {
+                return .sixGHz
+            }
+            return .unknown
+        }
+    }
+
     private func getWiFiLinkSpeed(interfaceName: String) -> Double? {
         let client = CWWiFiClient.shared()
         if let interface = client.interface(withName: interfaceName) {
@@ -379,6 +510,20 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
 
         return .success(InterfaceSnapshot(timestamp: Date(), bytesSent: totalSent, bytesReceived: totalReceived))
+    }
+}
+
+private enum WiFiScanError: LocalizedError {
+    case noWiFiInterface
+    case noNetworksFound
+
+    var errorDescription: String? {
+        switch self {
+        case .noWiFiInterface:
+            return "No Wi-Fi interface is available."
+        case .noNetworksFound:
+            return "No nearby Wi-Fi networks were found."
+        }
     }
 }
 

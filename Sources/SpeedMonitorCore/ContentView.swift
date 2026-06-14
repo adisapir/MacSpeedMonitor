@@ -119,6 +119,7 @@ public struct ContentView: View {
     public enum Tab: String, CaseIterable, Identifiable {
         case home = "Home"
         case networkInfo = "Network information"
+        case wifiScan = "Wi-Fi Scan"
         case about = "About"
         case settings = "Settings"
         
@@ -128,6 +129,7 @@ public struct ContentView: View {
             switch self {
             case .home: return "house.fill"
             case .networkInfo: return "network"
+            case .wifiScan: return "wifi"
             case .about: return "info.circle.fill"
             case .settings: return "gearshape.fill"
             }
@@ -264,6 +266,8 @@ public struct ContentView: View {
                 DashboardView()
             case .networkInfo:
                 NetworkInfoView()
+            case .wifiScan:
+                WiFiScanView()
             case .about:
                 AboutView()
             case .settings:
@@ -380,6 +384,32 @@ private struct SidebarButton: View {
         }
 
         return Color.clear
+    }
+}
+
+private struct RefreshButton: View {
+    let title: String
+    let isRefreshing: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.clockwise")
+                    .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                    .animation(isRefreshing ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                Text(title)
+            }
+            .font(.subheadline)
+            .fontWeight(.medium)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.white.opacity(0.1))
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .disabled(isRefreshing)
+        .opacity(isRefreshing ? 0.72 : 1)
     }
 }
 
@@ -713,21 +743,9 @@ struct NetworkInfoView: View {
                     
                     Spacer()
                     
-                    Button(action: {
+                    RefreshButton(title: "Refresh", isRefreshing: false) {
                         monitor.refreshInterfaces()
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.clockwise")
-                            Text("Refresh")
-                        }
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.white.opacity(0.1))
-                        .cornerRadius(6)
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal)
                 .padding(.top, 16)
@@ -827,6 +845,258 @@ struct NetworkInfoView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Wi-Fi Scan View
+
+struct WiFiScanView: View {
+    @EnvironmentObject private var monitor: NetworkSpeedMonitor
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Wi-Fi Scan")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        Text("Nearby networks mapped by band and signal strength")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    RefreshButton(title: "Refresh", isRefreshing: monitor.isWiFiScanRefreshing) {
+                        monitor.refreshWiFiScan()
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 16)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 14) {
+                        wifiLegendItem(label: "2.4 GHz", color: bandColor(.twoPointFourGHz))
+                        wifiLegendItem(label: "5 GHz", color: bandColor(.fiveGHz))
+                        wifiLegendItem(label: "6 GHz", color: bandColor(.sixGHz))
+                        Spacer()
+                        if let scanDate = monitor.lastWiFiScanAt {
+                            Text("Updated \(scanDate.formatted(date: .omitted, time: .standard))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    GlassCard(glowColor: .cyan) {
+                        WiFiRadarView(networks: monitor.wifiScanResults)
+                            .frame(height: 360)
+                    }
+                }
+                .padding(.horizontal)
+
+                if let error = monitor.wifiScanErrorDescription {
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal)
+                }
+
+                if monitor.wifiScanResults.isEmpty {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .opacity(monitor.isWiFiScanRefreshing ? 1 : 0)
+                        Text(monitor.isWiFiScanRefreshing ? "Scanning nearby networks..." : "No scan results yet")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 20)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Networks")
+                            .font(.headline)
+                            .padding(.horizontal)
+
+                        ForEach(monitor.wifiScanResults.prefix(12)) { network in
+                            WiFiNetworkRow(network: network)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+        .onAppear {
+            monitor.startWiFiScanning()
+        }
+        .onDisappear {
+            monitor.stopWiFiScanning()
+        }
+    }
+
+    private func wifiLegendItem(label: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct WiFiRadarView: View {
+    let networks: [WiFiNetworkInfo]
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = min(proxy.size.width, proxy.size.height)
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let radius = max(40, size / 2 - 22)
+
+            ZStack {
+                radarBackground(center: center, radius: radius)
+
+                ForEach(networks) { network in
+                    let point = radarPoint(for: network, center: center, radius: radius)
+                    Circle()
+                        .fill(bandColor(network.band).opacity(network.isConnected ? 0.95 : 0.78))
+                        .frame(width: dotSize(for: network.rssi), height: dotSize(for: network.rssi))
+                        .overlay(
+                            Circle()
+                                .stroke(network.isConnected ? Color.yellow : .white.opacity(0.18), lineWidth: network.isConnected ? 4 : 1)
+                        )
+                        .shadow(color: bandColor(network.band).opacity(network.isConnected ? 0.8 : 0.32), radius: network.isConnected ? 12 : 5)
+                        .position(point)
+                        .accessibilityLabel("\(network.ssid), \(network.band.rawValue), \(network.rssi) dBm")
+                }
+
+                if networks.isEmpty {
+                    Text("No networks")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func radarBackground(center: CGPoint, radius: CGFloat) -> some View {
+        ZStack {
+            ForEach(1...4, id: \.self) { index in
+                Circle()
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+                    .frame(width: radius * 2 * CGFloat(index) / 4, height: radius * 2 * CGFloat(index) / 4)
+                    .position(center)
+            }
+
+            Rectangle()
+                .fill(.white.opacity(0.08))
+                .frame(width: 1, height: radius * 2)
+                .position(center)
+
+            Rectangle()
+                .fill(.white.opacity(0.08))
+                .frame(width: radius * 2, height: 1)
+                .position(center)
+
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [.cyan.opacity(0.16), .clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: radius
+                    )
+                )
+                .frame(width: radius * 2, height: radius * 2)
+                .position(center)
+        }
+    }
+
+    private func radarPoint(for network: WiFiNetworkInfo, center: CGPoint, radius: CGFloat) -> CGPoint {
+        let angle = deterministicAngle(for: network.id)
+        let normalizedSignal = normalizedSignal(for: network.rssi)
+        let distance = radius * (1.0 - (normalizedSignal * 0.72))
+        return CGPoint(
+            x: center.x + cos(angle) * distance,
+            y: center.y + sin(angle) * distance
+        )
+    }
+
+    private func deterministicAngle(for text: String) -> CGFloat {
+        let hash = text.unicodeScalars.reduce(UInt32(2166136261)) { partial, scalar in
+            (partial ^ scalar.value) &* 16777619
+        }
+        return CGFloat(hash % 360) * .pi / 180
+    }
+
+    private func normalizedSignal(for rssi: Int) -> CGFloat {
+        let clampedRSSI = min(max(rssi, -95), -35)
+        return CGFloat(clampedRSSI + 95) / 60
+    }
+
+    private func dotSize(for rssi: Int) -> CGFloat {
+        8 + normalizedSignal(for: rssi) * 22
+    }
+}
+
+private struct WiFiNetworkRow: View {
+    let network: WiFiNetworkInfo
+
+    var body: some View {
+        GlassCard(glowColor: bandColor(network.band)) {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(bandColor(network.band))
+                    .frame(width: 14, height: 14)
+                    .overlay(
+                        Circle()
+                            .stroke(network.isConnected ? Color.yellow : .clear, lineWidth: 3)
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(network.ssid)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if network.isConnected {
+                            Text("Connected")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.yellow.opacity(0.18))
+                                .foregroundStyle(.yellow)
+                                .cornerRadius(4)
+                        }
+                    }
+
+                    Text("\(network.band.rawValue) • Channel \(network.channel) • \(network.securityDescription)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text("\(network.rssi) dBm")
+                    .font(.system(.subheadline, design: .monospaced))
+                    .fontWeight(.semibold)
+            }
+        }
+    }
+}
+
+private func bandColor(_ band: WiFiNetworkInfo.Band) -> Color {
+    switch band {
+    case .twoPointFourGHz:
+        return .orange
+    case .fiveGHz:
+        return .blue
+    case .sixGHz:
+        return .purple
+    case .unknown:
+        return .gray
     }
 }
 
