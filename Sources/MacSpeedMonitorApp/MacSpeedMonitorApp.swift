@@ -8,14 +8,21 @@ import AppKit
 struct AppIconView: View {
     var body: some View {
         ZStack {
-            // macOS App Icon Squircle Background
+            // Keep the icon canvas transparent outside and through the outer glass layer.
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [Color.blue, Color.purple],
+                        colors: [
+                            Color.blue.opacity(0.32),
+                            Color.purple.opacity(0.78),
+                        ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(.white.opacity(0.16), lineWidth: 1.5)
                 )
             
             // Subtly translucent overlay card (glass layer)
@@ -88,25 +95,51 @@ struct AppIconView: View {
 }
 
 @MainActor
-func renderAppIcon() -> NSImage? {
-    let renderer = ImageRenderer(content: AppIconView())
-    renderer.scale = 2.0
-    return renderer.nsImage
+enum AppIconProvider {
+    private static var cachedIcon: NSImage?
+
+    static func applyIcon() {
+        guard let iconImage = iconImage else { return }
+        NSApplication.shared.applicationIconImage = iconImage
+    }
+
+    private static var iconImage: NSImage? {
+        if let cachedIcon {
+            return cachedIcon
+        }
+
+        let renderer = ImageRenderer(content: AppIconView())
+        renderer.scale = 2.0
+        guard let renderedIcon = renderer.nsImage else { return nil }
+        cachedIcon = renderedIcon
+        return renderedIcon
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        AppIconProvider.applyIcon()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        AppIconProvider.applyIcon()
+    }
+
+    func applicationWillResignActive(_ notification: Notification) {
+        AppIconProvider.applyIcon()
+    }
 }
 
 @main
 struct MacSpeedMonitorApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var monitor = NetworkSpeedMonitor()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
-        
-        // Render and set the dynamic Dock App Icon
-        if let iconImage = renderAppIcon() {
-            NSApplication.shared.applicationIconImage = iconImage
-        }
+        AppIconProvider.applyIcon()
     }
 
     var body: some Scene {
@@ -115,6 +148,7 @@ struct MacSpeedMonitorApp: App {
                 .environmentObject(monitor)
                 .frame(minWidth: 680, minHeight: 450)
                 .onAppear {
+                    AppIconProvider.applyIcon()
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
                     if scenePhase == .active {
@@ -138,10 +172,13 @@ struct MacSpeedMonitorApp: App {
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {
             case .active:
+                AppIconProvider.applyIcon()
                 monitor.startMonitoring()
             case .inactive, .background:
+                AppIconProvider.applyIcon()
                 monitor.stopMonitoring()
             @unknown default:
+                AppIconProvider.applyIcon()
                 monitor.stopMonitoring()
             }
         }
