@@ -836,6 +836,7 @@ struct NetworkInfoView: View {
 
 struct WiFiScanView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
+    @StateObject private var locationPermission = LocationPermissionManager()
 
     var body: some View {
         ScrollView {
@@ -879,11 +880,15 @@ struct WiFiScanView: View {
                 }
                 .padding(.horizontal)
 
-                if let error = monitor.wifiScanErrorDescription {
-                    Text(error)
-                        .font(.subheadline)
-                        .foregroundStyle(.orange)
-                        .padding(.horizontal)
+                if let guidance = locationPermission.guidanceMessage ?? monitor.wifiScanErrorDescription {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "location.fill")
+                            .foregroundStyle(.orange)
+                        Text(guidance)
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.horizontal)
                 }
 
                 if monitor.wifiScanResults.isEmpty {
@@ -910,7 +915,13 @@ struct WiFiScanView: View {
             }
         }
         .onAppear {
+            locationPermission.requestAuthorizationIfNeeded()
             monitor.startWiFiScanning()
+        }
+        .onChange(of: locationPermission.canReadWiFiNames) { canReadWiFiNames in
+            if canReadWiFiNames {
+                monitor.refreshWiFiScan()
+            }
         }
         .onDisappear {
             monitor.stopWiFiScanning()

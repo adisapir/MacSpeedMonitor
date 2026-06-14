@@ -18,7 +18,16 @@ let package = Package(
         .executableTarget(
             name: "MacSpeedMonitorApp",
             dependencies: ["SpeedMonitorCore"],
-            path: "Sources/MacSpeedMonitorApp"
+            path: "Sources/MacSpeedMonitorApp",
+            exclude: ["Info.plist"],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Sources/MacSpeedMonitorApp/Info.plist",
+                ])
+            ]
         ),
     ]
 )
