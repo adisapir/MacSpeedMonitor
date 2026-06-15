@@ -11,6 +11,8 @@ import IOKit.network
 public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var downloadBytesPerSecond: Double = 0
     @Published public private(set) var uploadBytesPerSecond: Double = 0
+    @Published public private(set) var maxDownloadBytesPerSecond: Double = 0
+    @Published public private(set) var maxUploadBytesPerSecond: Double = 0
     @Published public private(set) var totalDownloadBytes: UInt64 = 0
     @Published public private(set) var totalUploadBytes: UInt64 = 0
     @Published public private(set) var runtime: TimeInterval = 0
@@ -145,6 +147,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
         if resetValues {
             downloadBytesPerSecond = 0
             uploadBytesPerSecond = 0
+            maxDownloadBytesPerSecond = 0
+            maxUploadBytesPerSecond = 0
             totalDownloadBytes = 0
             totalUploadBytes = 0
             runtime = 0
@@ -463,6 +467,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
         downloadBytesPerSecond = Double(downloadDiff) / deltaTime
         uploadBytesPerSecond = Double(uploadDiff) / deltaTime
+        maxDownloadBytesPerSecond = max(maxDownloadBytesPerSecond, downloadBytesPerSecond)
+        maxUploadBytesPerSecond = max(maxUploadBytesPerSecond, uploadBytesPerSecond)
         totalDownloadBytes += downloadDiff
         totalUploadBytes += uploadDiff
         previousSnapshot = current

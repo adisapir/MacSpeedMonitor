@@ -604,29 +604,71 @@ struct DashboardView: View {
                     
                     GlassCard(glowColor: .blue) {
                         HStack(spacing: 24) {
-                            statItem(title: "Downloaded", value: formatBytes(monitor.totalDownloadBytes), icon: "arrow.down.circle.fill", color: .blue)
-                            statItem(title: "Uploaded", value: formatBytes(monitor.totalUploadBytes), icon: "arrow.up.circle.fill", color: .green)
+                            throughputStatItem(
+                                title: "Download",
+                                totalValue: formatBytes(monitor.totalDownloadBytes),
+                                maxValue: formatSpeed(monitor.maxDownloadBytesPerSecond),
+                                icon: "arrow.down.circle.fill",
+                                color: .blue
+                            )
+                            throughputStatItem(
+                                title: "Upload",
+                                totalValue: formatBytes(monitor.totalUploadBytes),
+                                maxValue: formatSpeed(monitor.maxUploadBytesPerSecond),
+                                icon: "arrow.up.circle.fill",
+                                color: .green
+                            )
                             statItem(title: "Runtime", value: formatRuntime(monitor.runtime), icon: "clock.fill", color: .purple)
                         }
                     }
                 }
                 .padding(.horizontal)
                 
-                // Monitor status row
-                HStack {
-                    Text("Status: \(monitor.status.rawValue.capitalized)")
-                        .font(.footnote)
-                        .foregroundStyle(monitor.status == .degraded ? .orange : .secondary)
+                if let error = monitor.lastErrorDescription {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal)
+                    .padding(.bottom, 20)
+                } else {
                     Spacer()
-                    if let error = monitor.lastErrorDescription {
-                        Text(error)
-                            .font(.caption2)
-                            .foregroundStyle(.red)
-                    }
+                        .frame(height: 20)
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 20)
             }
+        }
+    }
+
+    private func throughputStatItem(title: String, totalValue: String, maxValue: String, icon: String, color: Color) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(color)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 14) {
+                    metricValue(label: "Total", value: totalValue)
+                    metricValue(label: "Max", value: maxValue)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func metricValue(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.body, design: .monospaced))
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
     }
     
