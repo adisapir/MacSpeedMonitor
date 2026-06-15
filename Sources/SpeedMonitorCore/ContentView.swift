@@ -940,7 +940,7 @@ struct WiFiScanView: View {
                     VStack(spacing: 12) {
                         ProgressView()
                             .opacity(monitor.isWiFiScanRefreshing ? 1 : 0)
-                        Text(monitor.isWiFiScanRefreshing ? "Scanning nearby networks..." : "No scan results yet")
+                        Text(emptyWiFiScanMessage)
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
@@ -961,16 +961,32 @@ struct WiFiScanView: View {
         }
         .onAppear {
             locationPermission.requestAuthorizationIfNeeded()
-            monitor.startWiFiScanning()
+            if locationPermission.canReadWiFiNames {
+                monitor.startWiFiScanning()
+            }
         }
         .onChange(of: locationPermission.canReadWiFiNames) { canReadWiFiNames in
             if canReadWiFiNames {
-                monitor.refreshWiFiScan()
+                monitor.startWiFiScanning()
+            } else {
+                monitor.stopWiFiScanning()
             }
         }
         .onDisappear {
             monitor.stopWiFiScanning()
         }
+    }
+
+    private var emptyWiFiScanMessage: String {
+        if monitor.isWiFiScanRefreshing {
+            return "Scanning nearby networks..."
+        }
+
+        if !locationPermission.canReadWiFiNames {
+            return "Location Services permission is required to show Wi-Fi network names"
+        }
+
+        return "No scan results yet"
     }
 
     private func wifiLegendItem(label: String, color: Color) -> some View {
