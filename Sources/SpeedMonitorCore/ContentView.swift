@@ -918,8 +918,7 @@ struct WiFiScanView: View {
                     GlassCard(glowColor: .cyan) {
                         WiFiRadarView(
                             networks: monitor.wifiScanResults,
-                            isRefreshing: monitor.isWiFiScanRefreshing,
-                            refreshToken: monitor.wifiScanRefreshToken
+                            isRefreshing: monitor.isWiFiScanRefreshing
                         )
                             .frame(height: 360)
                     }
@@ -987,16 +986,13 @@ struct WiFiScanView: View {
 }
 
 private struct WiFiRadarView: View {
-    private static let sweepDuration: TimeInterval = 1.5
+    private static let sweepDuration: TimeInterval = 2.2
 
     let networks: [WiFiNetworkInfo]
     let isRefreshing: Bool
-    let refreshToken: Int
 
     @State private var isSweepVisible = false
     @State private var sweepRotation = 0.0
-    @State private var sweepRunID = 0
-    @State private var latestIsRefreshing = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -1026,17 +1022,10 @@ private struct WiFiRadarView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
-            latestIsRefreshing = isRefreshing
-            if isRefreshing {
-                startSweep()
-            }
+            updateSweep(isRefreshing: isRefreshing)
         }
         .onChange(of: isRefreshing) { newValue in
-            latestIsRefreshing = newValue
-        }
-        .onChange(of: refreshToken) { _ in
-            latestIsRefreshing = isRefreshing
-            startSweep()
+            updateSweep(isRefreshing: newValue)
         }
     }
 
@@ -1075,25 +1064,33 @@ private struct WiFiRadarView: View {
 
     private func radarSweep(center: CGPoint, radius: CGFloat) -> some View {
         ZStack {
-            RadarSweepShape()
+            Circle()
                 .fill(
-                    LinearGradient(
-                        colors: [
-                            .green.opacity(0.32),
-                            .green.opacity(0.08),
-                            .clear,
+                    AngularGradient(
+                        stops: [
+                            .init(color: .clear, location: 0.00),
+                            .init(color: .clear, location: 0.72),
+                            .init(color: .green.opacity(0.04), location: 0.80),
+                            .init(color: .green.opacity(0.12), location: 0.88),
+                            .init(color: .green.opacity(0.26), location: 0.96),
+                            .init(color: .green.opacity(0.62), location: 1.00),
                         ],
-                        startPoint: .trailing,
-                        endPoint: .leading
+                        center: .center
                     )
                 )
                 .frame(width: radius * 2, height: radius * 2)
 
             Rectangle()
-                .fill(.green.opacity(0.7))
+                .fill(
+                    LinearGradient(
+                        colors: [.green.opacity(0.95), .green.opacity(0.5), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
                 .frame(width: radius, height: 2)
                 .offset(x: radius / 2)
-                .shadow(color: .green.opacity(0.2), radius: 4)
+                .shadow(color: .green.opacity(0.45), radius: 5)
         }
         .rotationEffect(.degrees(sweepRotation))
         .position(center)
@@ -1101,34 +1098,26 @@ private struct WiFiRadarView: View {
         .transition(.opacity)
     }
 
-    private func startSweep() {
-        sweepRunID += 1
-        let currentRunID = sweepRunID
+    private func updateSweep(isRefreshing: Bool) {
+        if isRefreshing {
+            restartSweep()
+        } else {
+            stopSweep()
+        }
+    }
 
+    private func restartSweep() {
         isSweepVisible = true
         sweepRotation = 0
-        withAnimation(.linear(duration: Self.sweepDuration)) {
+
+        withAnimation(.linear(duration: Self.sweepDuration).repeatForever(autoreverses: false)) {
             sweepRotation = 360
         }
+    }
 
-        // Visual-only timing: this task never blocks the CoreWLAN refresh path.
-        Task {
-            let nanoseconds = UInt64(Self.sweepDuration * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanoseconds)
-            await MainActor.run {
-                guard currentRunID == sweepRunID else {
-                    return
-                }
-
-                if latestIsRefreshing {
-                    startSweep()
-                } else {
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        isSweepVisible = false
-                        sweepRotation = 0
-                    }
-                }
-            }
+    private func stopSweep() {
+        withAnimation(.easeOut(duration: 0.18)) {
+            isSweepVisible = false
         }
     }
 
@@ -1156,24 +1145,6 @@ private struct WiFiRadarView: View {
 
     private func dotSize(for rssi: Int) -> CGFloat {
         8 + normalizedSignal(for: rssi) * 22
-    }
-}
-
-private struct RadarSweepShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) / 2
-        var path = Path()
-        path.move(to: center)
-        path.addArc(
-            center: center,
-            radius: radius,
-            startAngle: .degrees(-48),
-            endAngle: .degrees(0),
-            clockwise: false
-        )
-        path.closeSubpath()
-        return path
     }
 }
 

@@ -1,0 +1,5 @@
+New:
+- Add max values
+Fix:
+- Radar animation sync
+- Chart may temporarily freeze 
