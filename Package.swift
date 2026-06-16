@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "MacSpeedMonitor",
     platforms: [
-        .macOS(.v13),
+        .macOS(.v15),
     ],
     products: [
         .library(name: "SpeedMonitorCore", targets: ["SpeedMonitorCore"]),
