@@ -8,8 +8,11 @@ A lightweight SwiftUI network speed monitor for macOS.
 |---|---|---|
 | `SpeedMonitorCore` | Library | Reusable monitor + SwiftUI UI |
 | `MacSpeedMonitorApp` | Executable | macOS app entry point (`swift run`) |
+| `WiFiPulse.xcodeproj` / `MacSpeedMonitor` | Xcode app target | macOS app target for Xcode run, signing, capabilities, and packaging |
 
 **Platform requirements:** macOS 13+
+
+The app source of truth remains under `Sources/`. The Xcode project reuses the existing `MacSpeedMonitorApp` entry point and `SpeedMonitorCore` UI/monitor code. The `WiFiPulse/ContentView.swift` and `WiFiPulse/WiFiPulseApp.swift` files are only Xcode template files and are intentionally ignored; `WiFiPulse/Assets.xcassets` is kept for Xcode-managed app assets.
 
 ## Features
 
@@ -30,22 +33,55 @@ A lightweight SwiftUI network speed monitor for macOS.
 
 ## Run (macOS)
 
+### SwiftPM
+
 ```bash
 cd /path/to/SimpleSpeedMonitor
 swift run
 ```
 
+### Xcode Project Mode
+
+Open the Xcode project:
+
+```bash
+open WiFiPulse.xcodeproj
+```
+
+In Xcode:
+
+1. Select the `MacSpeedMonitor` scheme.
+2. Select `My Mac` as the run destination.
+3. Confirm the signing team under the `MacSpeedMonitor` target if Xcode asks.
+4. Run with `Product > Run` or `Cmd+R`.
+
+The Xcode app target uses `Sources/MacSpeedMonitorApp/Info.plist` and `Sources/MacSpeedMonitorApp/MacSpeedMonitor.entitlements`, so Location Services, sandboxing, network access, signing, archiving, and future packaging are managed through the Xcode project.
+
 ## Build (macOS)
+
+### SwiftPM
 
 ```bash
 swift build
+```
+
+### Xcode
+
+```bash
+xcodebuild -project WiFiPulse.xcodeproj -scheme MacSpeedMonitor -configuration Debug build
+```
+
+For local compile validation without requiring a signing certificate:
+
+```bash
+xcodebuild -project WiFiPulse.xcodeproj -scheme MacSpeedMonitor -configuration Debug -derivedDataPath /tmp/SimpleSpeedMonitorDerivedData CODE_SIGNING_ALLOWED=NO build
 ```
 
 ## Wi-Fi Scan Permissions
 
 macOS requires Location Services permission before third-party apps can read Wi-Fi SSID/BSSID details through `CoreWLAN`. Open the Wi-Fi Scan pane to trigger the permission request. If denied, enable Location Services for MacSpeedMonitor in System Settings.
 
-The SwiftPM executable embeds `Sources/MacSpeedMonitorApp/Info.plist` at link time so the location usage description is available when running with `swift run`.
+The SwiftPM executable embeds `Sources/MacSpeedMonitorApp/Info.plist` at link time so the location usage description is available when running with `swift run`. The Xcode app target uses the same plist and the dedicated entitlements file for the signed app bundle.
 
 ## Clean Rebuild
 
