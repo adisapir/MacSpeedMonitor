@@ -192,7 +192,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
                         isConnected: isConnected,
                         securityDescription: securityDescription(for: network),
                         routerGeneration: routerGeneration(for: network),
-                        vendorName: vendorName(for: bssid),
+                        vendorName: OUIVendorLookup.shared.vendorName(for: bssid),
                         countryCode: normalizedCountryCode(network.countryCode)
                     )
 
@@ -342,132 +342,6 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
         return countryCode.uppercased()
     }
-
-    nonisolated private static func vendorName(for bssid: String?) -> String {
-        guard let oui = normalizedOUI(from: bssid) else {
-            return "Unknown"
-        }
-
-        return knownVendorsByOUI[oui] ?? "Unknown (\(oui))"
-    }
-
-    nonisolated private static func normalizedOUI(from bssid: String?) -> String? {
-        guard let bssid else {
-            return nil
-        }
-
-        let hex = bssid
-            .uppercased()
-            .filter { $0.isHexDigit }
-
-        guard hex.count >= 6 else {
-            return nil
-        }
-
-        let prefix = String(hex.prefix(6))
-        return stride(from: 0, to: prefix.count, by: 2)
-            .map { index in
-                let start = prefix.index(prefix.startIndex, offsetBy: index)
-                let end = prefix.index(start, offsetBy: 2)
-                return String(prefix[start..<end])
-            }
-            .joined(separator: ":")
-    }
-
-    nonisolated private static let knownVendorsByOUI: [String: String] = [
-        "00:05:5D": "D-Link",
-        "00:0C:42": "RouterBOARD",
-        "00:0F:66": "Cisco",
-        "00:11:22": "Ubiquiti",
-        "00:13:10": "Cisco",
-        "00:14:22": "Dell",
-        "00:15:6D": "Ubiquiti",
-        "00:17:9A": "D-Link",
-        "00:18:0A": "Cisco Meraki",
-        "00:1A:1E": "Aruba",
-        "00:1B:2F": "Cisco",
-        "00:1D:AA": "Ubiquiti",
-        "00:1E:58": "D-Link",
-        "00:1F:33": "NETGEAR",
-        "00:21:29": "Cisco",
-        "00:22:6B": "Cisco",
-        "00:23:04": "Cisco",
-        "00:24:01": "D-Link",
-        "00:24:6C": "Ubiquiti",
-        "00:25:9C": "Cisco",
-        "00:26:5A": "D-Link",
-        "00:27:22": "Ubiquiti",
-        "00:50:56": "VMware",
-        "00:90:4C": "Epigram/Broadcom",
-        "04:18:D6": "Ubiquiti",
-        "04:92:26": "ASUS",
-        "04:F0:21": "Compex",
-        "08:02:8E": "NETGEAR",
-        "08:55:31": "Cisco Meraki",
-        "0C:80:63": "TP-Link",
-        "10:DA:43": "NETGEAR",
-        "14:59:C0": "TP-Link",
-        "18:64:72": "Aruba",
-        "18:E8:29": "Ubiquiti",
-        "1C:1B:0D": "Giga-byte",
-        "20:A6:CD": "Aruba",
-        "24:5A:4C": "Ubiquiti",
-        "24:A4:3C": "Ubiquiti",
-        "28:C6:8E": "NETGEAR",
-        "2C:3A:FD": "NETGEAR",
-        "2C:30:33": "NETGEAR",
-        "34:08:04": "D-Link",
-        "34:EF:B6": "Cisco Meraki",
-        "38:17:C3": "Ubiquiti",
-        "3C:37:86": "NETGEAR",
-        "3C:84:6A": "TP-Link",
-        "44:48:C1": "Ubiquiti",
-        "48:22:54": "TP-Link",
-        "4C:5E:0C": "RouterBOARD",
-        "50:C7:BF": "TP-Link",
-        "58:6D:8F": "Cisco Meraki",
-        "5C:5B:35": "MikroTik",
-        "60:22:32": "Ubiquiti",
-        "64:66:B3": "TP-Link",
-        "68:72:51": "Ubiquiti",
-        "6C:3B:6B": "RouterBOARD",
-        "70:4F:57": "TP-Link",
-        "74:83:C2": "Ubiquiti",
-        "78:8A:20": "Ubiquiti",
-        "7C:8B:CA": "TP-Link",
-        "80:2A:A8": "Ubiquiti",
-        "84:16:F9": "TP-Link",
-        "84:D8:1B": "TP-Link",
-        "88:15:44": "Cisco Meraki",
-        "90:9A:4A": "TP-Link",
-        "94:18:82": "HPE Aruba",
-        "9C:05:D6": "Cisco Meraki",
-        "A0:3D:6F": "Cisco Meraki",
-        "A4:2B:B0": "TP-Link",
-        "A8:5E:45": "Ubiquiti",
-        "AC:84:C6": "TP-Link",
-        "B0:4E:26": "TP-Link",
-        "B4:FB:E4": "Ubiquiti",
-        "B8:27:EB": "Raspberry Pi",
-        "BC:9F:E4": "Aruba",
-        "C0:25:E9": "TP-Link",
-        "C0:56:27": "NETGEAR",
-        "C4:04:15": "NETGEAR",
-        "C4:AD:34": "RouterBOARD",
-        "C8:3A:35": "Tenda",
-        "D0:21:F9": "Ubiquiti",
-        "D4:6E:0E": "TP-Link",
-        "D8:07:B6": "TP-Link",
-        "DC:9F:DB": "Ubiquiti",
-        "E0:63:DA": "Ubiquiti",
-        "E4:38:83": "Ubiquiti",
-        "E8:48:B8": "TP-Link",
-        "EC:08:6B": "TP-Link",
-        "F0:9F:C2": "Ubiquiti",
-        "F4:92:BF": "Ubiquiti",
-        "F8:1A:67": "TP-Link",
-        "FC:EC:DA": "Ubiquiti",
-    ]
 
     nonisolated private static func addChannelCongestionDetails(to networks: [WiFiNetworkInfo]) -> [WiFiNetworkInfo] {
         networks.map { network in

@@ -13,7 +13,10 @@ let package = Package(
     targets: [
         .target(
             name: "SpeedMonitorCore",
-            path: "Sources/SpeedMonitorCore"
+            path: "Sources/SpeedMonitorCore",
+            resources: [
+                .process("Resources/oui-vendors.tsv"),
+            ]
         ),
         .executableTarget(
             name: "MacSpeedMonitorApp",

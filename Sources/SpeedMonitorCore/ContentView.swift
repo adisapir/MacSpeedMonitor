@@ -1218,12 +1218,14 @@ private struct WiFiNetworkPopover: View {
                     .fontWeight(.bold)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.yellow.opacity(0.18))
-                    .foregroundStyle(.yellow)
+                    .background(connectedBadgeBackground)
+                    .foregroundStyle(connectedBadgeForeground)
                     .cornerRadius(4)
             }
 
             VStack(alignment: .leading, spacing: 5) {
+                wifiDetailRow("SSID", network.ssid)
+                wifiDetailRow("BSSID", network.bssid ?? "Unknown")
                 wifiDetailRow("Band", network.band.rawValue)
                 wifiDetailRow("Channel", "\(network.channel)")
                 wifiDetailRow("Channel width", network.channelWidth)
@@ -1275,8 +1277,8 @@ private struct WiFiNetworkRow: View {
                                 .fontWeight(.bold)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.yellow.opacity(0.18))
-                                .foregroundStyle(.yellow)
+                                .background(connectedBadgeBackground)
+                                .foregroundStyle(connectedBadgeForeground)
                                 .cornerRadius(4)
                             }
                     }
@@ -1287,8 +1289,8 @@ private struct WiFiNetworkRow: View {
 
                     HStack(spacing: 12) {
                         wifiRowDetail("SSID", network.ssid)
+                        wifiRowDetail("BSSID", network.bssid ?? "Unknown")
                         wifiRowDetail("Vendor", network.vendorName)
-                        wifiRowDetail("Country", network.countryCode ?? "Unknown")
                     }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -1296,7 +1298,7 @@ private struct WiFiNetworkRow: View {
                     HStack(spacing: 12) {
                         wifiRowDetail("Same ch", "\(network.sameChannelAPCount)")
                         wifiRowDetail("Overlap", "\(network.overlappingChannelAPCount)")
-                        wifiRowDetail("Security", network.securityDescription)
+                        wifiRowDetail("Country", network.countryCode ?? "Unknown")
                     }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -1314,6 +1316,13 @@ private struct WiFiNetworkRow: View {
                 }
             }
         }
+        .contextMenu {
+            Button {
+                copyNetworkDetails()
+            } label: {
+                Label("Copy Router Details", systemImage: "doc.on.doc")
+            }
+        }
     }
 
     private func wifiRowDetail(_ title: String, _ value: String) -> some View {
@@ -1324,7 +1333,34 @@ private struct WiFiNetworkRow: View {
                 .lineLimit(1)
         }
     }
+
+    private func copyNetworkDetails() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(networkDetailsText, forType: .string)
+    }
+
+    private var networkDetailsText: String {
+        [
+            "SSID: \(network.ssid)",
+            "BSSID: \(network.bssid ?? "Unknown")",
+            "Vendor/OUI: \(network.vendorName)",
+            "Connected: \(network.isConnected ? "Yes" : "No")",
+            "Signal: \(network.signalPercentage)% (\(network.rssi) dBm)",
+            "Wi-Fi Generation: \(network.routerGeneration)",
+            "Band: \(network.band.rawValue)",
+            "Channel: \(network.channel)",
+            "Channel Width: \(network.channelWidth)",
+            "Same Channel APs: \(network.sameChannelAPCount)",
+            "Overlapping Channel APs: \(network.overlappingChannelAPCount)",
+            "Country Code: \(network.countryCode ?? "Unknown")",
+            "Security: \(network.securityDescription)",
+        ].joined(separator: "\n")
+    }
 }
+
+private let connectedBadgeBackground = Color(red: 0.0, green: 0.18, blue: 0.08)
+private let connectedBadgeForeground = Color(red: 0.42, green: 1.0, blue: 0.42)
 
 private func bandColor(_ band: WiFiNetworkInfo.Band) -> Color {
     switch band {

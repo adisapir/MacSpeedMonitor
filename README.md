@@ -22,7 +22,7 @@ The app source of truth remains under `Sources/`. The Xcode project reuses the e
 - **macOS Menu Bar Commands** — Settings (Cmd+,) and About commands switch window views directly
 - **Modern User Interface** — glassmorphic "Liquid Glass" cards with glowing gradients, hover scaling, and dark/light/system theme support
 - **Network Interfaces** — active non-loopback adapters only, showing IP address, Wi-Fi link rate (via `CoreWLAN`), wired link speed (via `IOKit`), and friendly Wi-Fi generation label (Wi-Fi 5 through Wi-Fi 7); auto-refreshed via `NWPathMonitor` + manual Refresh button
-- **Wi-Fi Scan Radar** — nearby Wi-Fi networks shown as a radar map with signal-sized dots, 2.4/5/6 GHz band colors, connected-network highlighting, hover detail popovers, manual refresh, and 30 s auto-refresh; extended details include SSID, vendor/OUI, signal percentage, router Wi-Fi generation, channel width, same/overlapping-channel AP counts, country code, and security
+- **Wi-Fi Scan Radar** — nearby Wi-Fi networks shown as a radar map with signal-sized dots, 2.4/5/6 GHz band colors, connected-network highlighting, hover detail popovers, manual refresh, and 30 s auto-refresh; extended details include SSID, BSSID, vendor/OUI, signal percentage, router Wi-Fi generation, channel width, same/overlapping-channel AP counts, country code, and security, with right-click copy for a scanned router's full details
 - **Dynamic Dock App Icon** — dynamically rendered vector speed logo on startup
 - **Appearance & Unit Settings** — configure theme (Light / Dark / Match System), speed units (MB/s vs Mbps), and throughput history duration
 - **Session totals** — cumulative bytes downloaded and uploaded since monitoring started
