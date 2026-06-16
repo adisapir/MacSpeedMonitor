@@ -19,7 +19,7 @@ let package = Package(
             name: "MacSpeedMonitorApp",
             dependencies: ["SpeedMonitorCore"],
             path: "Sources/MacSpeedMonitorApp",
-            exclude: ["Info.plist"],
+            exclude: ["Info.plist", "MacSpeedMonitor.entitlements"],
             linkerSettings: [
                 .unsafeFlags([
                     "-Xlinker", "-sectcreate",

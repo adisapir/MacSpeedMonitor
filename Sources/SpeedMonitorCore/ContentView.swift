@@ -1358,7 +1358,7 @@ struct AboutView: View {
                     .foregroundStyle(.secondary)
             }
             
-            Text("A real-time networkthroughput metrics, historical chart view, and much more.")
+            Text("A real-time Wi-Fi Network throughput metrics, charts, radars views and much more.")
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)

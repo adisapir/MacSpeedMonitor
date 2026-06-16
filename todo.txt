@@ -1,7 +1,16 @@
 New:
+- Publish to (AppStore?) public as a package
+- Support update mechanism
+- Homebrew support
+- Website (generic)
+    - New version distribution workflow (git actions a valid option?)
+    - Rebuild doccolabs.com -> it's useless and legacy
+- Widget support
+- Menu bar D/U support
 
 Fix:
-- Chart may temporarily freeze 
+- Chart may temporarily freeze (unable to reproduce)
+- Location Services access (for SSID scanning)
 
 Done:
 - Radar animation sync

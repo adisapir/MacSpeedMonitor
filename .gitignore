@@ -2,3 +2,7 @@
 .vscode/
 .*/
 Sources/.specs-docs/
+WiFiPulse/ContentView.swift
+WiFiPulse/WiFiPulseApp.swift
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
