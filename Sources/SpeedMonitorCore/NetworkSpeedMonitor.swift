@@ -176,18 +176,24 @@ public final class NetworkSpeedMonitor: ObservableObject {
                 for network in scannedNetworks {
                     let ssid = displayName(for: network, connectedSSID: connectedSSID)
                     let bssid = network.bssid
-                    let channel = network.wlanChannel?.channelNumber ?? 0
-                    let band = band(for: network.wlanChannel)
+                    let wlanChannel = network.wlanChannel
+                    let channel = wlanChannel?.channelNumber ?? 0
+                    let band = band(for: wlanChannel)
                     let isConnected = (bssid != nil && bssid == connectedBSSID)
                         || (bssid == nil && ssid == connectedSSID)
                     let info = WiFiNetworkInfo(
                         ssid: ssid,
                         bssid: bssid,
                         rssi: network.rssiValue,
+                        signalPercentage: signalPercentage(for: network.rssiValue),
                         band: band,
                         channel: channel,
+                        channelWidth: channelWidthDescription(for: wlanChannel?.channelWidth),
                         isConnected: isConnected,
-                        securityDescription: "Secured"
+                        securityDescription: securityDescription(for: network),
+                        routerGeneration: routerGeneration(for: network),
+                        vendorName: vendorName(for: bssid),
+                        countryCode: normalizedCountryCode(network.countryCode)
                     )
 
                     let key = bssid ?? "\(ssid)-\(channel)-\(network.rssiValue)"
@@ -201,7 +207,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
             }
         }
 
-        let networks = mergedNetworks.values.sorted {
+        let networks = addChannelCongestionDetails(to: Array(mergedNetworks.values)).sorted {
             if $0.isConnected != $1.isConnected {
                 return $0.isConnected
             }
@@ -243,6 +249,299 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
 
         return "macOS is hiding Wi-Fi names from this app. Enable Location Services permission for MacSpeedMonitor to allow CoreWLAN to return SSID and BSSID details."
+    }
+
+    nonisolated private static func signalPercentage(for rssi: Int) -> Int {
+        let clampedRSSI = min(max(rssi, -95), -35)
+        return Int(round(Double(clampedRSSI + 95) / 60.0 * 100.0))
+    }
+
+    nonisolated private static func channelWidthDescription(for width: CWChannelWidth?) -> String {
+        guard let width else {
+            return "Unknown"
+        }
+
+        switch width {
+        case .width20MHz:
+            return "20 MHz"
+        case .width40MHz:
+            return "40 MHz"
+        case .width80MHz:
+            return "80 MHz"
+        case .width160MHz:
+            return "160 MHz"
+        default:
+            return "Unknown"
+        }
+    }
+
+    nonisolated private static func routerGeneration(for network: CWNetwork) -> String {
+        if network.supportsPHYMode(.mode11be) {
+            return "Wi-Fi 7"
+        }
+        if network.supportsPHYMode(.mode11ax) {
+            return "Wi-Fi 6"
+        }
+        if network.supportsPHYMode(.mode11ac) {
+            return "Wi-Fi 5"
+        }
+        if network.supportsPHYMode(.mode11n) {
+            return "Wi-Fi 4"
+        }
+        if network.supportsPHYMode(.mode11g) {
+            return "Wi-Fi 3"
+        }
+        if network.supportsPHYMode(.mode11a) {
+            return "Wi-Fi 2"
+        }
+        if network.supportsPHYMode(.mode11b) {
+            return "Wi-Fi 1"
+        }
+        return "Unknown"
+    }
+
+    nonisolated private static func securityDescription(for network: CWNetwork) -> String {
+        if network.supportsSecurity(.wpa3Personal) {
+            return "WPA3 Personal"
+        }
+        if network.supportsSecurity(.wpa3Enterprise) {
+            return "WPA3 Enterprise"
+        }
+        if network.supportsSecurity(.wpa3Transition) {
+            return "WPA3/WPA2"
+        }
+        if network.supportsSecurity(.wpa2Personal) {
+            return "WPA2 Personal"
+        }
+        if network.supportsSecurity(.wpa2Enterprise) {
+            return "WPA2 Enterprise"
+        }
+        if network.supportsSecurity(.wpaPersonal) {
+            return "WPA Personal"
+        }
+        if network.supportsSecurity(.wpaEnterprise) {
+            return "WPA Enterprise"
+        }
+        if network.supportsSecurity(.OWE) {
+            return "OWE"
+        }
+        if network.supportsSecurity(.none) {
+            return "Open"
+        }
+        if network.supportsSecurity(.WEP) {
+            return "WEP"
+        }
+        return "Unknown"
+    }
+
+    nonisolated private static func normalizedCountryCode(_ countryCode: String?) -> String? {
+        guard let countryCode = countryCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !countryCode.isEmpty
+        else {
+            return nil
+        }
+        return countryCode.uppercased()
+    }
+
+    nonisolated private static func vendorName(for bssid: String?) -> String {
+        guard let oui = normalizedOUI(from: bssid) else {
+            return "Unknown"
+        }
+
+        return knownVendorsByOUI[oui] ?? "Unknown (\(oui))"
+    }
+
+    nonisolated private static func normalizedOUI(from bssid: String?) -> String? {
+        guard let bssid else {
+            return nil
+        }
+
+        let hex = bssid
+            .uppercased()
+            .filter { $0.isHexDigit }
+
+        guard hex.count >= 6 else {
+            return nil
+        }
+
+        let prefix = String(hex.prefix(6))
+        return stride(from: 0, to: prefix.count, by: 2)
+            .map { index in
+                let start = prefix.index(prefix.startIndex, offsetBy: index)
+                let end = prefix.index(start, offsetBy: 2)
+                return String(prefix[start..<end])
+            }
+            .joined(separator: ":")
+    }
+
+    nonisolated private static let knownVendorsByOUI: [String: String] = [
+        "00:05:5D": "D-Link",
+        "00:0C:42": "RouterBOARD",
+        "00:0F:66": "Cisco",
+        "00:11:22": "Ubiquiti",
+        "00:13:10": "Cisco",
+        "00:14:22": "Dell",
+        "00:15:6D": "Ubiquiti",
+        "00:17:9A": "D-Link",
+        "00:18:0A": "Cisco Meraki",
+        "00:1A:1E": "Aruba",
+        "00:1B:2F": "Cisco",
+        "00:1D:AA": "Ubiquiti",
+        "00:1E:58": "D-Link",
+        "00:1F:33": "NETGEAR",
+        "00:21:29": "Cisco",
+        "00:22:6B": "Cisco",
+        "00:23:04": "Cisco",
+        "00:24:01": "D-Link",
+        "00:24:6C": "Ubiquiti",
+        "00:25:9C": "Cisco",
+        "00:26:5A": "D-Link",
+        "00:27:22": "Ubiquiti",
+        "00:50:56": "VMware",
+        "00:90:4C": "Epigram/Broadcom",
+        "04:18:D6": "Ubiquiti",
+        "04:92:26": "ASUS",
+        "04:F0:21": "Compex",
+        "08:02:8E": "NETGEAR",
+        "08:55:31": "Cisco Meraki",
+        "0C:80:63": "TP-Link",
+        "10:DA:43": "NETGEAR",
+        "14:59:C0": "TP-Link",
+        "18:64:72": "Aruba",
+        "18:E8:29": "Ubiquiti",
+        "1C:1B:0D": "Giga-byte",
+        "20:A6:CD": "Aruba",
+        "24:5A:4C": "Ubiquiti",
+        "24:A4:3C": "Ubiquiti",
+        "28:C6:8E": "NETGEAR",
+        "2C:3A:FD": "NETGEAR",
+        "2C:30:33": "NETGEAR",
+        "34:08:04": "D-Link",
+        "34:EF:B6": "Cisco Meraki",
+        "38:17:C3": "Ubiquiti",
+        "3C:37:86": "NETGEAR",
+        "3C:84:6A": "TP-Link",
+        "44:48:C1": "Ubiquiti",
+        "48:22:54": "TP-Link",
+        "4C:5E:0C": "RouterBOARD",
+        "50:C7:BF": "TP-Link",
+        "58:6D:8F": "Cisco Meraki",
+        "5C:5B:35": "MikroTik",
+        "60:22:32": "Ubiquiti",
+        "64:66:B3": "TP-Link",
+        "68:72:51": "Ubiquiti",
+        "6C:3B:6B": "RouterBOARD",
+        "70:4F:57": "TP-Link",
+        "74:83:C2": "Ubiquiti",
+        "78:8A:20": "Ubiquiti",
+        "7C:8B:CA": "TP-Link",
+        "80:2A:A8": "Ubiquiti",
+        "84:16:F9": "TP-Link",
+        "84:D8:1B": "TP-Link",
+        "88:15:44": "Cisco Meraki",
+        "90:9A:4A": "TP-Link",
+        "94:18:82": "HPE Aruba",
+        "9C:05:D6": "Cisco Meraki",
+        "A0:3D:6F": "Cisco Meraki",
+        "A4:2B:B0": "TP-Link",
+        "A8:5E:45": "Ubiquiti",
+        "AC:84:C6": "TP-Link",
+        "B0:4E:26": "TP-Link",
+        "B4:FB:E4": "Ubiquiti",
+        "B8:27:EB": "Raspberry Pi",
+        "BC:9F:E4": "Aruba",
+        "C0:25:E9": "TP-Link",
+        "C0:56:27": "NETGEAR",
+        "C4:04:15": "NETGEAR",
+        "C4:AD:34": "RouterBOARD",
+        "C8:3A:35": "Tenda",
+        "D0:21:F9": "Ubiquiti",
+        "D4:6E:0E": "TP-Link",
+        "D8:07:B6": "TP-Link",
+        "DC:9F:DB": "Ubiquiti",
+        "E0:63:DA": "Ubiquiti",
+        "E4:38:83": "Ubiquiti",
+        "E8:48:B8": "TP-Link",
+        "EC:08:6B": "TP-Link",
+        "F0:9F:C2": "Ubiquiti",
+        "F4:92:BF": "Ubiquiti",
+        "F8:1A:67": "TP-Link",
+        "FC:EC:DA": "Ubiquiti",
+    ]
+
+    nonisolated private static func addChannelCongestionDetails(to networks: [WiFiNetworkInfo]) -> [WiFiNetworkInfo] {
+        networks.map { network in
+            let sameChannelCount = networks.filter { other in
+                other.id != network.id
+                    && other.band == network.band
+                    && other.channel == network.channel
+            }.count
+
+            let overlappingChannelCount = networks.filter { other in
+                other.id != network.id
+                    && other.band == network.band
+                    && other.channel != network.channel
+                    && channelsOverlap(network, other)
+            }.count
+
+            return network.withCongestionDetails(
+                sameChannelAPCount: sameChannelCount,
+                overlappingChannelAPCount: overlappingChannelCount
+            )
+        }
+    }
+
+    nonisolated private static func channelsOverlap(_ lhs: WiFiNetworkInfo, _ rhs: WiFiNetworkInfo) -> Bool {
+        guard let lhsRange = channelFrequencyRange(for: lhs),
+              let rhsRange = channelFrequencyRange(for: rhs)
+        else {
+            return false
+        }
+
+        return lhsRange.lowerBound < rhsRange.upperBound
+            && rhsRange.lowerBound < lhsRange.upperBound
+    }
+
+    nonisolated private static func channelFrequencyRange(for network: WiFiNetworkInfo) -> ClosedRange<Double>? {
+        guard let center = centerFrequencyMHz(for: network.channel, band: network.band) else {
+            return nil
+        }
+
+        let halfWidth = max(10.0, channelWidthMHz(from: network.channelWidth) / 2.0)
+        return (center - halfWidth)...(center + halfWidth)
+    }
+
+    nonisolated private static func centerFrequencyMHz(for channel: Int, band: WiFiNetworkInfo.Band) -> Double? {
+        guard channel > 0 else {
+            return nil
+        }
+
+        switch band {
+        case .twoPointFourGHz:
+            if channel == 14 {
+                return 2484
+            }
+            return 2407 + Double(channel * 5)
+        case .fiveGHz:
+            return 5000 + Double(channel * 5)
+        case .sixGHz:
+            return 5950 + Double(channel * 5)
+        case .unknown:
+            return nil
+        }
+    }
+
+    nonisolated private static func channelWidthMHz(from description: String) -> Double {
+        if description.hasPrefix("160") {
+            return 160
+        }
+        if description.hasPrefix("80") {
+            return 80
+        }
+        if description.hasPrefix("40") {
+            return 40
+        }
+        return 20
     }
 
     nonisolated private static func band(for channel: CWChannel?) -> WiFiNetworkInfo.Band {

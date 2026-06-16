@@ -15,26 +15,66 @@ public struct WiFiNetworkInfo: Identifiable, Hashable, Sendable {
     public let ssid: String
     public let bssid: String?
     public let rssi: Int
+    public let signalPercentage: Int
     public let band: Band
     public let channel: Int
+    public let channelWidth: String
     public let isConnected: Bool
     public let securityDescription: String
+    public let routerGeneration: String
+    public let vendorName: String
+    public let sameChannelAPCount: Int
+    public let overlappingChannelAPCount: Int
+    public let countryCode: String?
 
     public init(
         ssid: String,
         bssid: String?,
         rssi: Int,
+        signalPercentage: Int,
         band: Band,
         channel: Int,
+        channelWidth: String,
         isConnected: Bool,
-        securityDescription: String
+        securityDescription: String,
+        routerGeneration: String,
+        vendorName: String,
+        sameChannelAPCount: Int = 0,
+        overlappingChannelAPCount: Int = 0,
+        countryCode: String?
     ) {
         self.ssid = ssid
         self.bssid = bssid
         self.rssi = rssi
+        self.signalPercentage = signalPercentage
         self.band = band
         self.channel = channel
+        self.channelWidth = channelWidth
         self.isConnected = isConnected
         self.securityDescription = securityDescription
+        self.routerGeneration = routerGeneration
+        self.vendorName = vendorName
+        self.sameChannelAPCount = sameChannelAPCount
+        self.overlappingChannelAPCount = overlappingChannelAPCount
+        self.countryCode = countryCode
+    }
+
+    public func withCongestionDetails(sameChannelAPCount: Int, overlappingChannelAPCount: Int) -> WiFiNetworkInfo {
+        WiFiNetworkInfo(
+            ssid: ssid,
+            bssid: bssid,
+            rssi: rssi,
+            signalPercentage: signalPercentage,
+            band: band,
+            channel: channel,
+            channelWidth: channelWidth,
+            isConnected: isConnected,
+            securityDescription: securityDescription,
+            routerGeneration: routerGeneration,
+            vendorName: vendorName,
+            sameChannelAPCount: sameChannelAPCount,
+            overlappingChannelAPCount: overlappingChannelAPCount,
+            countryCode: countryCode
+        )
     }
 }

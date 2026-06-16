@@ -951,7 +951,7 @@ struct WiFiScanView: View {
                             .font(.headline)
                             .padding(.horizontal)
 
-                        ForEach(monitor.wifiScanResults.prefix(12)) { network in
+                        ForEach(monitor.wifiScanResults) { network in
                             WiFiNetworkRow(network: network)
                         }
                     }
@@ -1226,7 +1226,13 @@ private struct WiFiNetworkPopover: View {
             VStack(alignment: .leading, spacing: 5) {
                 wifiDetailRow("Band", network.band.rawValue)
                 wifiDetailRow("Channel", "\(network.channel)")
-                wifiDetailRow("Signal", "\(network.rssi) dBm")
+                wifiDetailRow("Channel width", network.channelWidth)
+                wifiDetailRow("Signal", "\(network.signalPercentage)% (\(network.rssi) dBm)")
+                wifiDetailRow("Generation", network.routerGeneration)
+                wifiDetailRow("Vendor/OUI", network.vendorName)
+                wifiDetailRow("Same channel APs", "\(network.sameChannelAPCount)")
+                wifiDetailRow("Overlapping APs", "\(network.overlappingChannelAPCount)")
+                wifiDetailRow("Country", network.countryCode ?? "Unknown")
                 wifiDetailRow("Security", network.securityDescription)
             }
         }
@@ -1272,20 +1278,50 @@ private struct WiFiNetworkRow: View {
                                 .background(Color.yellow.opacity(0.18))
                                 .foregroundStyle(.yellow)
                                 .cornerRadius(4)
-                        }
+                            }
                     }
 
-                    Text("\(network.band.rawValue) • Channel \(network.channel) • \(network.securityDescription)")
+                    Text("\(network.band.rawValue) • Ch \(network.channel) • \(network.channelWidth) • \(network.routerGeneration)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    HStack(spacing: 12) {
+                        wifiRowDetail("SSID", network.ssid)
+                        wifiRowDetail("Vendor", network.vendorName)
+                        wifiRowDetail("Country", network.countryCode ?? "Unknown")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                    HStack(spacing: 12) {
+                        wifiRowDetail("Same ch", "\(network.sameChannelAPCount)")
+                        wifiRowDetail("Overlap", "\(network.overlappingChannelAPCount)")
+                        wifiRowDetail("Security", network.securityDescription)
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
-                Text("\(network.rssi) dBm")
-                    .font(.system(.subheadline, design: .monospaced))
-                    .fontWeight(.semibold)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(network.signalPercentage)%")
+                        .font(.system(.title3, design: .monospaced))
+                        .fontWeight(.bold)
+                    Text("\(network.rssi) dBm")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
             }
+        }
+    }
+
+    private func wifiRowDetail(_ title: String, _ value: String) -> some View {
+        HStack(spacing: 3) {
+            Text("\(title):")
+            Text(value)
+                .fontWeight(.medium)
+                .lineLimit(1)
         }
     }
 }
