@@ -83,6 +83,18 @@ macOS requires Location Services permission before third-party apps can read Wi-
 
 The SwiftPM executable embeds `Sources/MacSpeedMonitorApp/Info.plist` at link time so the location usage description is available when running with `swift run`. The Xcode app target uses the same plist and the dedicated entitlements file for the signed app bundle.
 
+## Wi-Fi Vendor/OUI Data
+
+Wi-Fi Scan resolves AP vendors by comparing each BSSID against the bundled `Sources/SpeedMonitorCore/Resources/oui-vendors.tsv` resource. That file is generated from Wireshark's public manufacturer database and preserves 24-bit, 28-bit, and 36-bit MAC blocks, then stores vendor names once and maps each prefix to a vendor index to keep the resource smaller than the raw source file.
+
+To refresh the bundled data:
+
+```bash
+Scripts/generate-oui-vendors.py
+```
+
+The runtime lookup checks the longest available prefix first and also tries the universal-address variant for locally administered AP BSSIDs.
+
 ## Clean Rebuild
 
 ```bash

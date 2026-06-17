@@ -32,5 +32,10 @@ let package = Package(
                 ])
             ]
         ),
+        .testTarget(
+            name: "SpeedMonitorCoreTests",
+            dependencies: ["SpeedMonitorCore"],
+            path: "Tests/SpeedMonitorCoreTests"
+        ),
     ]
 )

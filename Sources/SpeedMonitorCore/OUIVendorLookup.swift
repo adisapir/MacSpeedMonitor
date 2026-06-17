@@ -3,7 +3,8 @@ import Foundation
 struct OUIVendorLookup: Sendable {
     static let shared = OUIVendorLookup.load()
 
-    private let vendorsByHexPrefix: [String: String]
+    private let vendorNames: [String]
+    private let vendorIndexesByHexPrefix: [String: Int]
     private let prefixLengths: [Int]
 
     func vendorName(for bssid: String?) -> String {
@@ -31,8 +32,9 @@ struct OUIVendorLookup: Sendable {
     private func vendorName(forNormalizedHex hex: String) -> String? {
         for length in prefixLengths where hex.count >= length {
             let prefix = String(hex.prefix(length))
-            if let vendor = vendorsByHexPrefix[prefix] {
-                return vendor
+            if let vendorIndex = vendorIndexesByHexPrefix[prefix],
+               vendorNames.indices.contains(vendorIndex) {
+                return vendorNames[vendorIndex]
             }
         }
         return nil
@@ -42,10 +44,20 @@ struct OUIVendorLookup: Sendable {
         guard let url = resourceURL,
               let contents = try? String(contentsOf: url, encoding: .utf8)
         else {
-            return OUIVendorLookup(vendorsByHexPrefix: [:])
+            return OUIVendorLookup(vendorNames: [], vendorIndexesByHexPrefix: [:])
         }
 
-        var vendorsByHexPrefix: [String: String] = [:]
+        let parsedResource = parsedCompactedResource(from: contents)
+        if !parsedResource.vendorNames.isEmpty, !parsedResource.vendorIndexesByHexPrefix.isEmpty {
+            return OUIVendorLookup(
+                vendorNames: parsedResource.vendorNames,
+                vendorIndexesByHexPrefix: parsedResource.vendorIndexesByHexPrefix
+            )
+        }
+
+        var legacyVendorNames: [String] = []
+        var legacyVendorIndexesByName: [String: Int] = [:]
+        var legacyVendorIndexesByHexPrefix: [String: Int] = [:]
 
         for line in contents.split(whereSeparator: \.isNewline) {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -60,15 +72,26 @@ struct OUIVendorLookup: Sendable {
                 continue
             }
 
-            vendorsByHexPrefix[prefix] = entry.vendor
+            let vendorIndex = legacyVendorIndexesByName[entry.vendor] ?? {
+                let index = legacyVendorNames.count
+                legacyVendorIndexesByName[entry.vendor] = index
+                legacyVendorNames.append(entry.vendor)
+                return index
+            }()
+
+            legacyVendorIndexesByHexPrefix[prefix] = vendorIndex
         }
 
-        return OUIVendorLookup(vendorsByHexPrefix: vendorsByHexPrefix)
+        return OUIVendorLookup(
+            vendorNames: legacyVendorNames,
+            vendorIndexesByHexPrefix: legacyVendorIndexesByHexPrefix
+        )
     }
 
-    private init(vendorsByHexPrefix: [String: String]) {
-        self.vendorsByHexPrefix = vendorsByHexPrefix
-        self.prefixLengths = Array(Set(vendorsByHexPrefix.keys.map(\.count))).sorted(by: >)
+    private init(vendorNames: [String], vendorIndexesByHexPrefix: [String: Int]) {
+        self.vendorNames = vendorNames
+        self.vendorIndexesByHexPrefix = vendorIndexesByHexPrefix
+        self.prefixLengths = Array(Set(vendorIndexesByHexPrefix.keys.map(\.count))).sorted(by: >)
     }
 
     private static var resourceURL: URL? {
@@ -79,16 +102,73 @@ struct OUIVendorLookup: Sendable {
         #endif
     }
 
+    private static func parsedCompactedResource(
+        from contents: String
+    ) -> (vendorNames: [String], vendorIndexesByHexPrefix: [String: Int]) {
+        enum Section {
+            case none
+            case vendors
+            case prefixes
+        }
+
+        var section = Section.none
+        var vendorNames: [String] = []
+        var vendorIndexesByHexPrefix: [String: Int] = [:]
+
+        for line in contents.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else {
+                continue
+            }
+
+            if trimmed == "@vendors" {
+                section = .vendors
+                continue
+            }
+
+            if trimmed == "@prefixes" {
+                section = .prefixes
+                continue
+            }
+
+            switch section {
+            case .vendors:
+                vendorNames.append(trimmed)
+
+            case .prefixes:
+                let parts = trimmed
+                    .split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: true)
+                    .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+
+                guard parts.count == 2,
+                      let prefix = normalizedPrefix(from: parts[0]),
+                      let vendorIndex = Int(parts[1]),
+                      vendorIndex >= 0
+                else {
+                    continue
+                }
+
+                vendorIndexesByHexPrefix[prefix] = vendorIndex
+
+            case .none:
+                continue
+            }
+        }
+
+        return (vendorNames, vendorIndexesByHexPrefix)
+    }
+
     private static func vendorEntry(from line: String) -> (prefix: String, vendor: String)? {
         if line.contains("\t") {
             let parts = line
-                .split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: true)
+                .split(separator: "\t", omittingEmptySubsequences: true)
                 .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
 
-            guard parts.count == 2 else {
+            guard parts.count >= 2 else {
                 return nil
             }
-            return (parts[0], parts[1])
+
+            return (parts[0], parts.count >= 3 ? parts[2] : parts[1])
         }
 
         let parts = line
@@ -107,18 +187,22 @@ struct OUIVendorLookup: Sendable {
     }
 
     private static func normalizedPrefix(from value: String) -> String? {
-        let hex = value
-            .uppercased()
+        let components = value
             .split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
-            .first
-            .map(String.init)?
+            .map(String.init)
+        let bits = components.count == 2 ? Int(components[1]) : nil
+        let nibbleCount = bits.map { ($0 + 3) / 4 }
+        let hex = components
+            .first?
+            .uppercased()
             .filter { $0.isHexDigit } ?? ""
+        let prefixLength = nibbleCount ?? hex.count
 
-        guard hex.count >= 6, hex.count <= 12, hex.count.isMultiple(of: 2) else {
+        guard prefixLength >= 6, prefixLength <= 12, hex.count >= prefixLength else {
             return nil
         }
 
-        return hex
+        return String(hex.prefix(prefixLength))
     }
 
     private static func normalizedHex(from bssid: String?) -> String? {
