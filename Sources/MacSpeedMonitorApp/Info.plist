@@ -19,7 +19,7 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
+	<string>15.6</string>
 	<key>NSLocationUsageDescription</key>
 	<string>MacSpeedMonitor uses location permission only so macOS can reveal nearby Wi-Fi network names during scans.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
