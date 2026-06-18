@@ -151,8 +151,8 @@ public struct ContentView: View {
                 selectedTab = tab
             }
         }
-        .onChange(of: monitor.lastErrorDescription) { newError in
-            if let desc = newError, monitor.status == .degraded {
+        .onChange(of: monitor.lastErrorDescription) { _, newValue in
+            if let desc = newValue, monitor.status == .degraded {
                 if lastErrorMessage != desc {
                     lastErrorMessage = desc
                     showingErrorAlert = true
@@ -965,7 +965,7 @@ struct WiFiScanView: View {
                 monitor.startWiFiScanning()
             }
         }
-        .onChange(of: locationPermission.canReadWiFiNames) { canReadWiFiNames in
+        .onChange(of: locationPermission.canReadWiFiNames) { _, canReadWiFiNames in
             if canReadWiFiNames {
                 monitor.startWiFiScanning()
             } else {
@@ -1040,7 +1040,7 @@ private struct WiFiRadarView: View {
         .onAppear {
             updateSweep(isRefreshing: isRefreshing)
         }
-        .onChange(of: isRefreshing) { newValue in
+        .onChange(of: isRefreshing) { _, newValue in
             updateSweep(isRefreshing: newValue)
         }
     }
