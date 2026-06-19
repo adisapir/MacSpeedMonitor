@@ -397,6 +397,87 @@ private struct RefreshButton: View {
     }
 }
 
+private struct HelpItem: Identifiable {
+    let term: String
+    let explanation: String
+
+    var id: String { term }
+}
+
+private struct InfoButton: View {
+    let title: String
+    let introduction: String
+    let items: [HelpItem]
+
+    @State private var isHovered = false
+    @State private var isPinned = false
+
+    private var isPresented: Binding<Bool> {
+        Binding(
+            get: { isHovered || isPinned },
+            set: { isPresented in
+                if !isPresented {
+                    isHovered = false
+                    isPinned = false
+                }
+            }
+        )
+    }
+
+    var body: some View {
+        Button {
+            isPinned.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 30, height: 28)
+                .background(.white.opacity(isHovered || isPinned ? 0.16 : 0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .popover(isPresented: isPresented, arrowEdge: .top) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(title, systemImage: "info.circle.fill")
+                            .font(.headline)
+                            .foregroundStyle(.blue)
+                        Text(introduction)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(items) { item in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.term)
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                Text(item.explanation)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .frame(width: 340, height: min(CGFloat(items.count * 56 + 100), 480))
+            .onHover { hovering in
+                isHovered = hovering
+            }
+        }
+        .help("About this information")
+        .accessibilityLabel("About \(title)")
+    }
+}
+
 // MARK: - Dashboard View (Home Tab)
 
 struct DashboardView: View {
@@ -768,7 +849,19 @@ struct NetworkInfoView: View {
                     }
                     
                     Spacer()
-                    
+
+                    InfoButton(
+                        title: "Network Interfaces",
+                        introduction: "These are the active connections your Mac can use to reach your local network or the internet.",
+                        items: [
+                            HelpItem(term: "Interface name", explanation: "macOS's short technical name for the connection, such as en0. Wi-Fi and Ethernet can use different names on each Mac."),
+                            HelpItem(term: "IPv4 / IPv6", explanation: "The version of the network address. IPv4 addresses are shorter and familiar; IPv6 is the newer format."),
+                            HelpItem(term: "IP address", explanation: "The address assigned to your Mac on this network. Right-click the card to copy it."),
+                            HelpItem(term: "Link rate / speed", explanation: "The maximum connection speed currently negotiated with your router or network equipment. It is not the same as your internet speed."),
+                            HelpItem(term: "Wi-Fi mode", explanation: "The Wi-Fi technology generation currently in use, such as Wi-Fi 6."),
+                        ]
+                    )
+
                     RefreshButton(title: "Refresh", isRefreshing: false) {
                         monitor.refreshInterfaces()
                     }
@@ -865,12 +958,27 @@ struct NetworkInfoView: View {
                                     }
                                 }
                             }
+                            .contextMenu {
+                                if let address = info.address {
+                                    Button {
+                                        copyToClipboard(address)
+                                    } label: {
+                                        Label("Copy IP Address", systemImage: "doc.on.doc")
+                                    }
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal)
                 }
             }
         }
+    }
+
+    private func copyToClipboard(_ value: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(value, forType: .string)
     }
 }
 
@@ -894,6 +1002,23 @@ struct WiFiScanView: View {
                     }
 
                     Spacer()
+
+                    InfoButton(
+                        title: "Wi-Fi Scan Details",
+                        introduction: "The scan describes nearby Wi-Fi access points. It does not read anyone's browsing activity or personal data.",
+                        items: [
+                            HelpItem(term: "SSID", explanation: "The Wi-Fi network name shown when you choose a network to join."),
+                            HelpItem(term: "Vendor", explanation: "The likely manufacturer of the router or access point, estimated from its hardware address."),
+                            HelpItem(term: "Signal", explanation: "How strongly your Mac can hear the network. A higher percentage and a dBm value closer to zero indicate a stronger signal."),
+                            HelpItem(term: "Security", explanation: "The protection used by the network. WPA2 and WPA3 are common secure options; an open network has no Wi-Fi password protection."),
+                            HelpItem(term: "Band", explanation: "The radio range used: 2.4 GHz reaches farther, while 5 GHz and 6 GHz can offer more speed at shorter range."),
+                            HelpItem(term: "Wi-Fi generation", explanation: "The router's Wi-Fi technology family, such as Wi-Fi 5, 6, or 7."),
+                            HelpItem(term: "Channel / width", explanation: "The radio lane and its size. Wider channels can carry more data but may encounter more interference."),
+                            HelpItem(term: "Same / overlapping APs", explanation: "Nearby access points competing on the same or nearby channels. Higher numbers can mean more congestion."),
+                            HelpItem(term: "Country", explanation: "The regulatory region announced by the access point, which controls allowed Wi-Fi channels."),
+                            HelpItem(term: "BSSID", explanation: "The unique hardware address of a specific access point. It is mainly useful for technical troubleshooting."),
+                        ]
+                    )
 
                     RefreshButton(title: "Refresh", isRefreshing: monitor.isWiFiScanRefreshing) {
                         monitor.refreshWiFiScan()
@@ -1225,17 +1350,17 @@ private struct WiFiNetworkPopover: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 wifiDetailRow("SSID", network.ssid)
-                wifiDetailRow("BSSID", network.bssid ?? "Unknown")
+                wifiDetailRow("Vendor", network.vendorName)
+                wifiDetailRow("Signal", "\(network.signalPercentage)% (\(network.rssi) dBm)")
+                wifiDetailRow("Security", network.securityDescription)
                 wifiDetailRow("Band", network.band.rawValue)
+                wifiDetailRow("Wi-Fi generation", network.routerGeneration)
                 wifiDetailRow("Channel", "\(network.channel)")
                 wifiDetailRow("Channel width", network.channelWidth)
-                wifiDetailRow("Signal", "\(network.signalPercentage)% (\(network.rssi) dBm)")
-                wifiDetailRow("Generation", network.routerGeneration)
-                wifiDetailRow("Vendor/OUI", network.vendorName)
                 wifiDetailRow("Same channel APs", "\(network.sameChannelAPCount)")
                 wifiDetailRow("Overlapping APs", "\(network.overlappingChannelAPCount)")
                 wifiDetailRow("Country", network.countryCode ?? "Unknown")
-                wifiDetailRow("Security", network.securityDescription)
+                wifiDetailRow("BSSID", network.bssid ?? "Unknown")
             }
         }
     }
@@ -1283,14 +1408,14 @@ private struct WiFiNetworkRow: View {
                             }
                     }
 
-                    Text("\(network.band.rawValue) • Ch \(network.channel) • \(network.channelWidth) • \(network.routerGeneration)")
+                    Text("\(network.vendorName) • \(network.securityDescription)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
                     HStack(spacing: 12) {
-                        wifiRowDetail("SSID", network.ssid)
-                        wifiRowDetail("BSSID", network.bssid ?? "Unknown")
-                        wifiRowDetail("Vendor", network.vendorName)
+                        wifiRowDetail("Wi-Fi", network.routerGeneration)
+                        wifiRowDetail("Band", network.band.rawValue)
+                        wifiRowDetail("Channel", "\(network.channel) / \(network.channelWidth)")
                     }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -1302,6 +1427,10 @@ private struct WiFiNetworkRow: View {
                     }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+
+                    wifiRowDetail("BSSID", network.bssid ?? "Unknown")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
 
                 Spacer()
@@ -1378,6 +1507,9 @@ private func bandColor(_ band: WiFiNetworkInfo.Band) -> Color {
 // MARK: - About View
 
 struct AboutView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var sparklesAreVisible = false
+
     var body: some View {
         VStack(spacing: 24) {
             Spacer()
@@ -1418,6 +1550,18 @@ struct AboutView: View {
                 Circle()
                     .fill(.orange)
                     .frame(width: 8, height: 8)
+
+                sparkle(size: 18, offset: CGSize(width: 45, height: -42), delay: 0)
+                sparkle(size: 12, offset: CGSize(width: -48, height: -20), delay: 0.55)
+                sparkle(size: 10, offset: CGSize(width: 42, height: 36), delay: 1.1)
+            }
+            .onAppear {
+                guard !reduceMotion else {
+                    sparklesAreVisible = true
+                    return
+                }
+
+                sparklesAreVisible = true
             }
             
             VStack(spacing: 8) {
@@ -1448,6 +1592,21 @@ struct AboutView: View {
             
             Spacer()
         }
+    }
+
+    private func sparkle(size: CGFloat, offset: CGSize, delay: Double) -> some View {
+        Image(systemName: "sparkle")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(.yellow.opacity(0.9))
+            .shadow(color: .yellow.opacity(0.45), radius: 5)
+            .scaleEffect(sparklesAreVisible ? 1 : 0.45)
+            .opacity(sparklesAreVisible ? 1 : 0.2)
+            .offset(offset)
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: 1.6).repeatForever(autoreverses: true).delay(delay),
+                value: sparklesAreVisible
+            )
+            .accessibilityHidden(true)
     }
 }
 
