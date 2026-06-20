@@ -1,6 +1,7 @@
 import Foundation
 import Darwin
 import SystemConfiguration
+import dnssd
 
 public struct NetworkInterfaceInfo: Identifiable, Hashable {
     public var id: String {
@@ -33,7 +34,7 @@ public struct NetworkInterfaceInfo: Identifiable, Hashable {
 
 // MARK: - Local Network Scanner
 
-public struct DiscoveredNetworkDevice: Sendable, Identifiable, Hashable {
+public struct DiscoveredNetworkDevice: Codable, Sendable, Identifiable, Hashable {
     public var id: String { ipv4Address }
     public let ipv4Address: String
     public var hostname: String?
@@ -250,7 +251,10 @@ struct LocalNetworkScanner: NetworkScanning {
                                     discoveredAddresses.insert(result.address)
                                     if let device = DiscoveredNetworkDevice(
                                         ipv4Address: result.address,
-                                        hostname: Self.resolveHostname(for: result.address),
+                                        hostname: Self.resolveHostname(
+                                            for: result.address,
+                                            interfaceName: request.interfaceName
+                                        ),
                                         macAddress: result.macAddress,
                                         vendorName: Self.vendorName(for: result.macAddress),
                                         responseTimeMilliseconds: result.responseTimeMilliseconds,
@@ -466,7 +470,10 @@ struct LocalNetworkScanner: NetworkScanning {
         return ~UInt16(sum)
     }
 
-    nonisolated private static func resolveHostname(for address: String) -> String? {
+    nonisolated private static func resolveHostname(
+        for address: String,
+        interfaceName: String
+    ) -> String? {
         var socketAddress = sockaddr_in()
         socketAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         socketAddress.sin_family = sa_family_t(AF_INET)
@@ -488,8 +495,58 @@ struct LocalNetworkScanner: NetworkScanning {
                 )
             }
         }
-        guard status == 0 else { return nil }
-        return decodedCString(hostname).nilIfEmpty
+        if status == 0,
+           let resolved = normalizedHostname(decodedCString(hostname)),
+           resolved != address {
+            return resolved
+        }
+        return resolveMulticastDNSHostname(
+            for: address,
+            interfaceIndex: if_nametoindex(interfaceName)
+        )
+    }
+
+    nonisolated private static func resolveMulticastDNSHostname(
+        for address: String,
+        interfaceIndex: UInt32
+    ) -> String? {
+        let labels = address.split(separator: ".").reversed()
+        let reverseName = labels.joined(separator: ".") + ".in-addr.arpa."
+        let resultBox = DNSHostnameResultBox()
+        let context = Unmanaged.passUnretained(resultBox).toOpaque()
+        var service: DNSServiceRef?
+        let createStatus = DNSServiceQueryRecord(
+            &service,
+            DNSServiceFlags(kDNSServiceFlagsForceMulticast),
+            interfaceIndex,
+            reverseName,
+            UInt16(kDNSServiceType_PTR),
+            UInt16(kDNSServiceClass_IN),
+            dnsHostnameQueryCallback,
+            context
+        )
+        guard createStatus == kDNSServiceErr_NoError, let service else { return nil }
+        defer { DNSServiceRefDeallocate(service) }
+
+        var descriptor = pollfd(
+            fd: DNSServiceRefSockFD(service),
+            events: Int16(POLLIN),
+            revents: 0
+        )
+        guard descriptor.fd >= 0,
+              poll(&descriptor, 1, 500) > 0,
+              (descriptor.revents & Int16(POLLIN)) != 0,
+              DNSServiceProcessResult(service) == kDNSServiceErr_NoError
+        else { return nil }
+        return normalizedHostname(resultBox.hostname)
+    }
+
+    nonisolated private static func normalizedHostname(_ value: String?) -> String? {
+        guard var value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty
+        else { return nil }
+        while value.hasSuffix(".") { value.removeLast() }
+        return value.isEmpty ? nil : value
     }
 
     nonisolated private static func vendorName(for macAddress: String?) -> String? {
@@ -706,4 +763,32 @@ private extension String {
 private func decodedCString(_ bytes: [CChar]) -> String {
     let end = bytes.firstIndex(of: 0) ?? bytes.endIndex
     return String(decoding: bytes[..<end].map(UInt8.init(bitPattern:)), as: UTF8.self)
+}
+
+private final class DNSHostnameResultBox: @unchecked Sendable {
+    var hostname: String?
+}
+
+private let dnsHostnameQueryCallback: DNSServiceQueryRecordReply = {
+    _, _, _, errorCode, _, rrtype, _, dataLength, recordData, _, context in
+    guard errorCode == kDNSServiceErr_NoError,
+          rrtype == UInt16(kDNSServiceType_PTR),
+          let recordData,
+          let context
+    else { return }
+
+    let bytes = UnsafeRawBufferPointer(start: recordData, count: Int(dataLength))
+    var labels: [String] = []
+    var offset = 0
+    while offset < bytes.count {
+        let length = Int(bytes[offset])
+        if length == 0 { break }
+        guard length < 64, offset + 1 + length <= bytes.count else { return }
+        let labelBytes = bytes[(offset + 1)..<(offset + 1 + length)]
+        labels.append(String(decoding: labelBytes, as: UTF8.self))
+        offset += length + 1
+    }
+    guard !labels.isEmpty else { return }
+    let box = Unmanaged<DNSHostnameResultBox>.fromOpaque(context).takeUnretainedValue()
+    box.hostname = labels.joined(separator: ".")
 }

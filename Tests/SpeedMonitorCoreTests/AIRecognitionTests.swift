@@ -13,6 +13,7 @@ final class AIRecognitionTests: XCTestCase {
         let provider = OpenAIRecognitionProvider(session: session, keyStore: keyStore)
         let device = try XCTUnwrap(DiscoveredNetworkDevice(
             ipv4Address: "192.168.50.44",
+            hostname: "living-room-speaker.local",
             macAddress: "AA:BB:CC:DD:EE:FF",
             vendorName: "Example Vendor",
             responseTimeMilliseconds: 3.27
@@ -25,6 +26,7 @@ final class AIRecognitionTests: XCTestCase {
             let text = String(decoding: body, as: UTF8.self)
             XCTAssertFalse(text.contains("192.168.50.44"))
             XCTAssertFalse(text.contains("AA:BB:CC:DD:EE:FF"))
+            XCTAssertTrue(text.contains("living-room-speaker.local"))
             XCTAssertTrue(text.contains("Example Vendor"))
             XCTAssertTrue(text.contains("\"store\":false"))
             XCTAssertTrue(text.contains("json_schema"))
@@ -117,6 +119,70 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(try store.loadKey(), "replacement-key")
         try store.removeKey()
         XCTAssertNil(try store.loadKey())
+    }
+
+    func testDeviceHistoryRoundTripsAndEnrichesByMACAddress() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MacSpeedMonitor-history-\(UUID().uuidString)")
+        let fileURL = directory.appendingPathComponent("device-history.json")
+        let store = LocalDeviceHistoryStore(fileURL: fileURL)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let originalDevice = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.20",
+            hostname: "living-room-device.local",
+            macAddress: "AA:BB:CC:DD:EE:FF",
+            vendorName: "Example Vendor",
+            responseTimeMilliseconds: 4.2
+        ))
+        let recognition = DeviceAIRecognition(
+            itemID: "item-1",
+            suggestedName: "Likely media player",
+            category: "Entertainment",
+            likelyPurpose: "Streaming media",
+            confidence: .medium,
+            rationale: "Vendor evidence",
+            limitations: "Exact model unknown"
+        )
+        let record = try XCTUnwrap(PersistedDeviceRecord(
+            device: originalDevice,
+            aiRecognition: recognition
+        ))
+
+        try store.save([record.macAddress: record])
+        let loaded = try store.load()
+        let loadedRecord = try XCTUnwrap(loaded[record.macAddress])
+        XCTAssertEqual(loadedRecord.macAddress, record.macAddress)
+        XCTAssertEqual(loadedRecord.hostname, record.hostname)
+        XCTAssertEqual(loadedRecord.vendorName, record.vendorName)
+        XCTAssertEqual(loadedRecord.aiRecognition, record.aiRecognition)
+        XCTAssertEqual(
+            loadedRecord.lastSeenAt.timeIntervalSince(record.lastSeenAt),
+            0,
+            accuracy: 1
+        )
+
+        let rediscovered = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.87",
+            macAddress: "AA:BB:CC:DD:EE:FF"
+        ))
+        let enriched = try XCTUnwrap(loaded[record.macAddress]?.enriching(rediscovered))
+        XCTAssertEqual(enriched.ipv4Address, "192.168.1.87")
+        XCTAssertEqual(enriched.hostname, "living-room-device.local")
+        XCTAssertEqual(enriched.vendorName, "Example Vendor")
+        XCTAssertEqual(loaded[record.macAddress]?.aiRecognition, recognition)
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
+        XCTAssertEqual(permissions.map { $0 & 0o777 }, 0o600)
+
+        try store.remove()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    func testDeviceWithoutMACCannotBecomePersistentRecord() throws {
+        let device = try XCTUnwrap(DiscoveredNetworkDevice(ipv4Address: "10.0.0.8"))
+        XCTAssertNil(PersistedDeviceRecord(device: device, aiRecognition: nil))
     }
 
     private func makeSession() -> URLSession {

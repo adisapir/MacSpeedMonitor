@@ -1004,7 +1004,7 @@ struct NetworkInfoView: View {
                     title: "Local Network Scanner",
                     introduction: "The scanner checks only your current private IPv4 network. It sends reachability requests but does not inspect browsing activity or network payloads.",
                     items: [
-                        HelpItem(term: "Privacy", explanation: "Results stay on this Mac for the current app session. They are not saved, uploaded, or used for analytics."),
+                        HelpItem(term: "Privacy", explanation: "Devices with a hardware address are saved to a local Application Support file so later scans can restore details. History is never uploaded or used for analytics."),
                         HelpItem(term: "Visibility", explanation: "Firewalls, sleeping devices, guest-network isolation, and router settings can prevent devices from appearing."),
                         HelpItem(term: "Optional details", explanation: "Hostname, hardware address, manufacturer, and response time appear only when macOS and the device make them available."),
                         HelpItem(term: "Scan range", explanation: "Only the directly connected private IPv4 network is checked, with a maximum of 256 addresses. No service ports are scanned."),
@@ -1073,7 +1073,7 @@ struct NetworkInfoView: View {
                             device: device,
                             aiState: monitor.aiRecognitionStates[device.aiIdentity],
                             copyAction: copyToClipboard,
-                            recognizeAction: device.isUnknownForAIRecognition
+                            recognizeAction: device.isEligibleForAIRecognition
                                 ? { requestAIRecognition(for: device) }
                                 : nil
                         )
@@ -1092,7 +1092,7 @@ struct NetworkInfoView: View {
                 performPendingAIRecognition()
             }
         } message: {
-            Text("Redacted device metadata—vendor, role flags, and response time—will be sent to OpenAI using your API key. IP addresses and MAC addresses are never sent. AI results are suggestions and may be inaccurate.")
+            Text("Redacted device metadata—discovered hostname, vendor, role flags, and response time—will be sent to OpenAI using your API key. IP addresses and MAC addresses are never sent. AI suggestions may be inaccurate and are saved locally by MAC address for later scans.")
         }
     }
 
@@ -2082,6 +2082,7 @@ struct SettingsView: View {
     @State private var openAIStatusMessage: String?
     @State private var openAIStatusIsError = false
     @State private var isTestingOpenAI = false
+    @State private var showingClearHistoryConfirmation = false
     
     var body: some View {
         ScrollView {
@@ -2216,7 +2217,29 @@ struct SettingsView: View {
                                     .foregroundStyle(openAIStatusIsError ? .orange : .green)
                             }
 
-                            Text("AI Scan sends only vendor, role flags, and response time. IP and MAC addresses are never sent. Results are not verified and remain only for this app session.")
+                            Divider()
+
+                            HStack {
+                                Label(
+                                    "\(monitor.deviceHistoryRecordCount) saved device \(monitor.deviceHistoryRecordCount == 1 ? "record" : "records")",
+                                    systemImage: "internaldrive"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Clear Device History", role: .destructive) {
+                                    showingClearHistoryConfirmation = true
+                                }
+                                .disabled(monitor.deviceHistoryRecordCount == 0)
+                            }
+
+                            if let historyError = monitor.deviceHistoryErrorDescription {
+                                Text(historyError)
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+
+                            Text("AI recognition sends only discovered hostname, vendor, role flags, and response time. IP and MAC addresses are never sent. Scanner metadata and AI suggestions are stored locally by MAC address so later scans can restore details.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -2226,6 +2249,17 @@ struct SettingsView: View {
             }
         }
         .onAppear { monitor.refreshOpenAIAPIKeyAvailability() }
+        .confirmationDialog(
+            "Clear all saved device history?",
+            isPresented: $showingClearHistoryConfirmation
+        ) {
+            Button("Clear Device History", role: .destructive) {
+                monitor.clearDeviceHistory()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes saved scanner details and AI recognition results. Devices currently shown by an active scan remain visible.")
+        }
     }
 
     private func saveOpenAIKey() {

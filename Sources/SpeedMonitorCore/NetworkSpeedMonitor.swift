@@ -55,6 +55,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var aiRecognitionTotalCount = 0
     @Published public private(set) var aiRecognitionErrorDescription: String?
     @Published public private(set) var hasOpenAIAPIKey = false
+    @Published public private(set) var deviceHistoryRecordCount = 0
+    @Published public private(set) var deviceHistoryErrorDescription: String?
 
     private var timerCancellable: AnyCancellable?
     private var wifiScanTimerCancellable: AnyCancellable?
@@ -65,6 +67,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
     private var aiRecognitionTask: Task<Void, Never>?
     private var aiRecognitionID: UUID?
     private let aiRecognitionProvider: any AIRecognitionProviding
+    private let deviceHistoryStore: any DeviceHistoryStoring
+    private var persistedDeviceRecords: [String: PersistedDeviceRecord]
     private var previousSnapshot: InterfaceSnapshot?
     private let samplingInterval: TimeInterval
     private var consecutiveFailureCount = 0
@@ -76,17 +80,28 @@ public final class NetworkSpeedMonitor: ObservableObject {
     public convenience init(samplingInterval: TimeInterval = 1.0) {
         self.init(
             samplingInterval: samplingInterval,
-            aiRecognitionProvider: OpenAIRecognitionProvider()
+            aiRecognitionProvider: OpenAIRecognitionProvider(),
+            deviceHistoryStore: LocalDeviceHistoryStore.shared
         )
     }
 
     init(
         samplingInterval: TimeInterval,
-        aiRecognitionProvider: any AIRecognitionProviding
+        aiRecognitionProvider: any AIRecognitionProviding,
+        deviceHistoryStore: any DeviceHistoryStoring = LocalDeviceHistoryStore.shared
     ) {
         self.samplingInterval = max(0.2, samplingInterval)
         self.aiRecognitionProvider = aiRecognitionProvider
+        self.deviceHistoryStore = deviceHistoryStore
         self.hasOpenAIAPIKey = aiRecognitionProvider.hasAPIKey
+        do {
+            let records = try deviceHistoryStore.load()
+            self.persistedDeviceRecords = records
+            self.deviceHistoryRecordCount = records.count
+        } catch {
+            self.persistedDeviceRecords = [:]
+            self.deviceHistoryErrorDescription = error.localizedDescription
+        }
         if case .success(let snapshot) = Self.captureSnapshot() {
             previousSnapshot = snapshot
         }
@@ -206,6 +221,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
             networkScanDevices = deviceStore.sortedDevices
             let activeIdentities = Set(networkScanDevices.map(\.aiIdentity))
             aiRecognitionStates = aiRecognitionStates.filter { activeIdentities.contains($0.key) }
+            persistDeviceHistory()
             lastNetworkScanAt = completedAt
             networkScanPhase = .completed
             if let scanID = networkScanID {
@@ -215,6 +231,14 @@ public final class NetworkSpeedMonitor: ObservableObject {
     }
 
     private func mergeNetworkScanDevice(_ update: DiscoveredNetworkDevice) {
+        var update = update
+        if let macAddress = update.macAddress,
+           let persisted = persistedDeviceRecords[macAddress] {
+            update = persisted.enriching(update)
+            if let recognition = persisted.aiRecognition {
+                aiRecognitionStates[update.aiIdentity] = .recognized(recognition)
+            }
+        }
         var deviceStore = NetworkScanDeviceStore(devices: networkScanDevices)
         deviceStore.merge(update)
         networkScanDevices = deviceStore.sortedDevices
@@ -234,12 +258,24 @@ public final class NetworkSpeedMonitor: ObservableObject {
         hasOpenAIAPIKey = aiRecognitionProvider.hasAPIKey
     }
 
+    public func clearDeviceHistory() {
+        do {
+            try deviceHistoryStore.remove()
+            persistedDeviceRecords = [:]
+            deviceHistoryRecordCount = 0
+            deviceHistoryErrorDescription = nil
+            aiRecognitionStates = [:]
+        } catch {
+            deviceHistoryErrorDescription = error.localizedDescription
+        }
+    }
+
     public func startAIRecognitionForUnknownDevices() {
-        startAIRecognition(for: unknownDevicesForAIRecognition)
+        startAIRecognition(for: unknownDevicesForAIRecognition, unknownOnly: true)
     }
 
     public func startAIRecognition(for device: DiscoveredNetworkDevice) {
-        startAIRecognition(for: [device])
+        startAIRecognition(for: [device], unknownOnly: false)
     }
 
     public func cancelAIRecognition() {
@@ -256,7 +292,10 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
     }
 
-    private func startAIRecognition(for requestedDevices: [DiscoveredNetworkDevice]) {
+    private func startAIRecognition(
+        for requestedDevices: [DiscoveredNetworkDevice],
+        unknownOnly: Bool
+    ) {
         guard !isAIRecognitionRunning, networkScanPhase != .scanning else { return }
         refreshOpenAIAPIKeyAvailability()
         guard hasOpenAIAPIKey else {
@@ -264,7 +303,9 @@ public final class NetworkSpeedMonitor: ObservableObject {
             return
         }
 
-        let devices = requestedDevices.filter(\.isUnknownForAIRecognition)
+        let devices = requestedDevices.filter {
+            unknownOnly ? $0.isUnknownForAIRecognition : $0.isEligibleForAIRecognition
+        }
         guard !devices.isEmpty else { return }
         let recognitionID = UUID()
         let generation = networkScanGeneration
@@ -308,6 +349,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
                         }
                     }
                     self.aiRecognitionCompletedCount += batch.count
+                    self.persistDeviceHistory()
                 } catch is CancellationError {
                     return
                 } catch let error as AIRecognitionError {
@@ -338,6 +380,31 @@ public final class NetworkSpeedMonitor: ObservableObject {
                 self.aiRecognitionTask = nil
                 self.aiRecognitionID = nil
             }
+        }
+    }
+
+    private func persistDeviceHistory() {
+        for device in networkScanDevices {
+            guard let macAddress = device.macAddress else { continue }
+            let currentRecognition: DeviceAIRecognition?
+            if case .recognized(let recognition) = aiRecognitionStates[device.aiIdentity] {
+                currentRecognition = recognition
+            } else {
+                currentRecognition = persistedDeviceRecords[macAddress]?.aiRecognition
+            }
+            guard let record = PersistedDeviceRecord(
+                device: device,
+                aiRecognition: currentRecognition
+            ) else { continue }
+            persistedDeviceRecords[macAddress] = record
+        }
+
+        do {
+            try deviceHistoryStore.save(persistedDeviceRecords)
+            deviceHistoryRecordCount = persistedDeviceRecords.count
+            deviceHistoryErrorDescription = nil
+        } catch {
+            deviceHistoryErrorDescription = error.localizedDescription
         }
     }
 

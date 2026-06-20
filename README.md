@@ -89,7 +89,9 @@ The SwiftPM executable embeds `Sources/MacSpeedMonitorApp/Info.plist` at link ti
 
 Open **Connected Network** and choose **Scan Network** to check the Mac's directly connected private IPv4 network. Scans are always manual, are limited to networks containing no more than 256 addresses, and do not probe service ports or inspect network payloads.
 
-Results remain local to the current app session and are not saved or uploaded. Host firewalls, sleeping devices, guest-network isolation, and router policy can prevent devices from responding, so the result list may not contain every connected device. Hostnames, hardware addresses, vendors, and response times are shown only when macOS and the responding device make them available.
+Devices with a MAC address are saved locally in `~/Library/Application Support/MacSpeedMonitor/device-history.json`. Later scans use the MAC address to restore prior hostname, vendor, last-seen scanner metadata, and AI recognition while still showing only devices rediscovered in the current scan. The history is never uploaded and can be removed from Settings. Host firewalls, sleeping devices, guest-network isolation, and router policy can prevent devices from responding, so the result list may not contain every connected device.
+
+For each responding device, the scanner attempts standard reverse DNS followed by a short interface-scoped multicast-DNS lookup. This can recover `.local` names and DHCP hostnames when the router registers them in DNS; networks that do not publish hostname records will still show the device without a hostname.
 
 ### AI Device Recognition (Optional)
 
@@ -97,12 +99,14 @@ The Connected Network scanner can ask OpenAI for a cautious category suggestion 
 
 - The key is stored in macOS Keychain and is never included in source code, preferences, or logs.
 - Requests use `gpt-5.4-mini` through OpenAI's Responses API and are billed to the user's OpenAI account.
-- Only a temporary item ID, vendor name, Router / This Mac flags, and response time are sent. Private IP addresses and MAC addresses are never sent.
+- Only a temporary item ID, discovered hostname, vendor name, Router / This Mac flags, and response time are sent. Private IP addresses and MAC addresses are never sent.
 - Requests contain at most 25 devices per batch, do not use web search or tools, and are not automatically retried.
-- Results are labeled as unverified AI suggestions, stay only in memory for the current app session, and never replace scanner facts.
+- Results are labeled as unverified AI suggestions, are stored locally by MAC address for reuse in later scans, and never replace scanner facts.
 - Vendor and timing metadata may be insufficient to recognize a device. A low-confidence or unavailable result is expected rather than a definitive identity.
 
 API keys stored in a local desktop application do not have server-grade isolation. Use a dedicated OpenAI project key with appropriate usage limits, and remove it from Settings when it is no longer needed.
+
+The device-history file is versioned JSON written atomically with owner-only file permissions. Devices without a MAC address are not persisted because they cannot be matched reliably across scans.
 
 ## Wi-Fi Vendor/OUI Data
 
