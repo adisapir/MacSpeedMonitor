@@ -18,6 +18,9 @@
 		DDA727700000000000000015 /* WiFiNetworkInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA727700000000000000115 /* WiFiNetworkInfo.swift */; };
 		DDA727700000000000000016 /* OUIVendorLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA727700000000000000118 /* OUIVendorLookup.swift */; };
 		DDA727700000000000000017 /* Resources/oui-vendors.tsv in Resources */ = {isa = PBXBuildFile; fileRef = DDA727700000000000000119 /* Resources/oui-vendors.tsv */; };
+		DDDAA4C82FE5DAB40003B145 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDAA4C72FE5DAB40003B145 /* WidgetKit.framework */; };
+		DDDAA4CA2FE5DAB40003B145 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDAA4C92FE5DAB40003B145 /* SwiftUI.framework */; };
+		DDDAA4D92FE5DAB60003B145 /* WiFiPulseWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DDDAA4C52FE5DAB40003B145 /* WiFiPulseWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,6 +30,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = DDA727700000000000000302;
 			remoteInfo = SpeedMonitorCore;
+		};
+		DDDAA4D72FE5DAB60003B145 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DDA7274C2FE1D0AB00FD8A8D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DDDAA4C42FE5DAB40003B145;
+			remoteInfo = WiFiPulseWidgetExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -40,6 +50,17 @@
 				DDA727700000000000000004 /* SpeedMonitorCore.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DDDAA4DA2FE5DAB60003B145 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				DDDAA4D92FE5DAB60003B145 /* WiFiPulseWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -58,7 +79,31 @@
 		DDA727700000000000000117 /* MacSpeedMonitor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MacSpeedMonitor.entitlements; sourceTree = "<group>"; };
 		DDA727700000000000000118 /* OUIVendorLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OUIVendorLookup.swift; sourceTree = "<group>"; };
 		DDA727700000000000000119 /* Resources/oui-vendors.tsv */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Resources/oui-vendors.tsv"; sourceTree = "<group>"; };
+		DDDAA4C52FE5DAB40003B145 /* WiFiPulseWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WiFiPulseWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		DDDAA4C72FE5DAB40003B145 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		DDDAA4C92FE5DAB40003B145 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		DDDAA4DD2FE5DAB60003B145 /* Exceptions for "WiFiPulseWidget" folder in "WiFiPulseWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DDDAA4C42FE5DAB40003B145 /* WiFiPulseWidgetExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		DDDAA4CB2FE5DAB40003B145 /* WiFiPulseWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DDDAA4DD2FE5DAB60003B145 /* Exceptions for "WiFiPulseWidget" folder in "WiFiPulseWidgetExtension" target */,
+			);
+			path = WiFiPulseWidget;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		DDA727512FE1D0AB00FD8A8D /* Frameworks */ = {
@@ -76,6 +121,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DDDAA4C22FE5DAB40003B145 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DDDAA4CA2FE5DAB40003B145 /* SwiftUI.framework in Frameworks */,
+				DDDAA4C82FE5DAB40003B145 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -84,6 +138,8 @@
 			children = (
 				DDA727700000000000000152 /* Sources */,
 				DDA727700000000000000102 /* WiFiPulse/Assets.xcassets */,
+				DDDAA4CB2FE5DAB40003B145 /* WiFiPulseWidget */,
+				DDDAA4C62FE5DAB40003B145 /* Frameworks */,
 				DDA727552FE1D0AB00FD8A8D /* Products */,
 			);
 			sourceTree = "<group>";
@@ -93,6 +149,7 @@
 			children = (
 				DDA727700000000000000104 /* MacSpeedMonitor.app */,
 				DDA727700000000000000103 /* SpeedMonitorCore.framework */,
+				DDDAA4C52FE5DAB40003B145 /* WiFiPulseWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -130,6 +187,15 @@
 			path = SpeedMonitorCore;
 			sourceTree = "<group>";
 		};
+		DDDAA4C62FE5DAB40003B145 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				DDDAA4C72FE5DAB40003B145 /* WidgetKit.framework */,
+				DDDAA4C92FE5DAB40003B145 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -141,11 +207,13 @@
 				DDA727512FE1D0AB00FD8A8D /* Frameworks */,
 				DDA727522FE1D0AB00FD8A8D /* Resources */,
 				DDA727700000000000000031 /* Embed Frameworks */,
+				DDDAA4DA2FE5DAB60003B145 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				DDA727700000000000000071 /* PBXTargetDependency */,
+				DDDAA4D82FE5DAB60003B145 /* PBXTargetDependency */,
 			);
 			name = MacSpeedMonitor;
 			packageProductDependencies = (
@@ -171,6 +239,28 @@
 			productReference = DDA727700000000000000103 /* SpeedMonitorCore.framework */;
 			productType = "com.apple.product-type.framework";
 		};
+		DDDAA4C42FE5DAB40003B145 /* WiFiPulseWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DDDAA4DE2FE5DAB60003B145 /* Build configuration list for PBXNativeTarget "WiFiPulseWidgetExtension" */;
+			buildPhases = (
+				DDDAA4C12FE5DAB40003B145 /* Sources */,
+				DDDAA4C22FE5DAB40003B145 /* Frameworks */,
+				DDDAA4C32FE5DAB40003B145 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DDDAA4CB2FE5DAB40003B145 /* WiFiPulseWidget */,
+			);
+			name = WiFiPulseWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = WiFiPulseWidgetExtension;
+			productReference = DDDAA4C52FE5DAB40003B145 /* WiFiPulseWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -185,6 +275,9 @@
 						CreatedOnToolsVersion = 26.5;
 					};
 					DDA727700000000000000302 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					DDDAA4C42FE5DAB40003B145 = {
 						CreatedOnToolsVersion = 26.5;
 					};
 				};
@@ -205,6 +298,7 @@
 			targets = (
 				DDA727532FE1D0AB00FD8A8D /* MacSpeedMonitor */,
 				DDA727700000000000000302 /* SpeedMonitorCore */,
+				DDDAA4C42FE5DAB40003B145 /* WiFiPulseWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -223,6 +317,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				DDA727700000000000000017 /* Resources/oui-vendors.tsv in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DDDAA4C32FE5DAB40003B145 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -250,6 +351,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DDDAA4C12FE5DAB40003B145 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -257,6 +365,11 @@
 			isa = PBXTargetDependency;
 			target = DDA727700000000000000302 /* SpeedMonitorCore */;
 			targetProxy = DDA727700000000000000021 /* PBXContainerItemProxy */;
+		};
+		DDDAA4D82FE5DAB60003B145 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DDDAA4C42FE5DAB40003B145 /* WiFiPulseWidgetExtension */;
+			targetProxy = DDDAA4D72FE5DAB60003B145 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -517,6 +630,76 @@
 			};
 			name = Release;
 		};
+		DDDAA4DB2FE5DAB60003B145 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_ENTITLEMENTS = WiFiPulseWidget/WiFiPulseWidget.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6MF64SK72Z;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WiFiPulseWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = WiFiPulseWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.adisapir.MacSpeedMonitor.WiFiPulseWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		DDDAA4DC2FE5DAB60003B145 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_ENTITLEMENTS = WiFiPulseWidget/WiFiPulseWidget.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6MF64SK72Z;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WiFiPulseWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = WiFiPulseWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.adisapir.MacSpeedMonitor.WiFiPulseWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -543,6 +726,15 @@
 			buildConfigurations = (
 				DDA727700000000000000503 /* Debug */,
 				DDA727700000000000000504 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DDDAA4DE2FE5DAB60003B145 /* Build configuration list for PBXNativeTarget "WiFiPulseWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DDDAA4DB2FE5DAB60003B145 /* Debug */,
+				DDDAA4DC2FE5DAB60003B145 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -12,6 +12,5 @@ import SwiftUI
 struct WiFiPulseWidgetBundle: WidgetBundle {
     var body: some Widget {
         WiFiPulseWidget()
-        WiFiPulseWidgetControl()
     }
 }

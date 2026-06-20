@@ -6,9 +6,26 @@ import Network
 import CoreWLAN
 import IOKit
 import IOKit.network
+import SystemConfiguration
 
 @MainActor
 public final class NetworkSpeedMonitor: ObservableObject {
+    private enum WidgetSnapshot {
+        static let appGroup = "group.com.adisapir.MacSpeedMonitor"
+        static let downloadKey = "widget.downloadBytesPerSecond"
+        static let uploadKey = "widget.uploadBytesPerSecond"
+        static let updatedAtKey = "widget.updatedAt"
+        static let isRunningKey = "widget.isRunning"
+
+        static func publish(download: Double, upload: Double, updatedAt: Date, isRunning: Bool) {
+            guard let defaults = UserDefaults(suiteName: appGroup) else { return }
+            defaults.set(download, forKey: downloadKey)
+            defaults.set(upload, forKey: uploadKey)
+            defaults.set(updatedAt.timeIntervalSince1970, forKey: updatedAtKey)
+            defaults.set(isRunning, forKey: isRunningKey)
+        }
+    }
+
     @Published public private(set) var downloadBytesPerSecond: Double = 0
     @Published public private(set) var uploadBytesPerSecond: Double = 0
     @Published public private(set) var maxDownloadBytesPerSecond: Double = 0
@@ -143,6 +160,12 @@ public final class NetworkSpeedMonitor: ObservableObject {
         timerCancellable?.cancel()
         timerCancellable = nil
         status = .stopped
+        WidgetSnapshot.publish(
+            download: downloadBytesPerSecond,
+            upload: uploadBytesPerSecond,
+            updatedAt: Date(),
+            isRunning: false
+        )
 
         if resetValues {
             downloadBytesPerSecond = 0
@@ -167,6 +190,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
         let connectedSSID = interfaces.compactMap { $0.ssid() }.first
         let connectedBSSID = interfaces.compactMap { $0.bssid() }.first
+        let routerIPAddress = defaultRouterIPAddress()
 
         var mergedNetworks: [String: WiFiNetworkInfo] = [:]
 
@@ -192,6 +216,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
                         isConnected: isConnected,
                         securityDescription: securityDescription(for: network),
                         routerGeneration: routerGeneration(for: network),
+                        routerIPAddress: isConnected ? routerIPAddress : nil,
                         vendorName: OUIVendorLookup.shared.vendorName(for: bssid),
                         countryCode: normalizedCountryCode(network.countryCode)
                     )
@@ -219,6 +244,30 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
 
         return .success(networks)
+    }
+
+    nonisolated private static func defaultRouterIPAddress() -> String? {
+        guard let store = SCDynamicStoreCreate(
+            nil,
+            "MacSpeedMonitor.RouterLookup" as CFString,
+            nil,
+            nil
+        ),
+        let ipv4State = SCDynamicStoreCopyValue(
+            store,
+            "State:/Network/Global/IPv4" as CFString
+        ) as? [String: Any],
+        let router = ipv4State["Router"] as? String,
+        !router.isEmpty
+        else {
+            return nil
+        }
+
+        var address = in_addr()
+        guard router.withCString({ inet_pton(AF_INET, $0, &address) }) == 1 else {
+            return nil
+        }
+        return router
     }
 
     nonisolated private static func displayName(for network: CWNetwork, connectedSSID: String?) -> String {
@@ -640,6 +689,12 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
         downloadBytesPerSecond = Double(downloadDiff) / deltaTime
         uploadBytesPerSecond = Double(uploadDiff) / deltaTime
+        WidgetSnapshot.publish(
+            download: downloadBytesPerSecond,
+            upload: uploadBytesPerSecond,
+            updatedAt: current.timestamp,
+            isRunning: true
+        )
         maxDownloadBytesPerSecond = max(maxDownloadBytesPerSecond, downloadBytesPerSecond)
         maxUploadBytesPerSecond = max(maxUploadBytesPerSecond, uploadBytesPerSecond)
         totalDownloadBytes += downloadDiff

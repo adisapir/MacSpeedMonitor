@@ -22,6 +22,7 @@ public struct WiFiNetworkInfo: Identifiable, Hashable, Sendable {
     public let isConnected: Bool
     public let securityDescription: String
     public let routerGeneration: String
+    public let routerIPAddress: String?
     public let vendorName: String
     public let sameChannelAPCount: Int
     public let overlappingChannelAPCount: Int
@@ -38,6 +39,7 @@ public struct WiFiNetworkInfo: Identifiable, Hashable, Sendable {
         isConnected: Bool,
         securityDescription: String,
         routerGeneration: String,
+        routerIPAddress: String? = nil,
         vendorName: String,
         sameChannelAPCount: Int = 0,
         overlappingChannelAPCount: Int = 0,
@@ -53,6 +55,7 @@ public struct WiFiNetworkInfo: Identifiable, Hashable, Sendable {
         self.isConnected = isConnected
         self.securityDescription = securityDescription
         self.routerGeneration = routerGeneration
+        self.routerIPAddress = routerIPAddress
         self.vendorName = vendorName
         self.sameChannelAPCount = sameChannelAPCount
         self.overlappingChannelAPCount = overlappingChannelAPCount
@@ -71,10 +74,22 @@ public struct WiFiNetworkInfo: Identifiable, Hashable, Sendable {
             isConnected: isConnected,
             securityDescription: securityDescription,
             routerGeneration: routerGeneration,
+            routerIPAddress: routerIPAddress,
             vendorName: vendorName,
             sameChannelAPCount: sameChannelAPCount,
             overlappingChannelAPCount: overlappingChannelAPCount,
             countryCode: countryCode
         )
+    }
+
+    public var routerLoginURL: URL? {
+        guard let routerIPAddress, !routerIPAddress.isEmpty else {
+            return nil
+        }
+
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = routerIPAddress
+        return components.url
     }
 }

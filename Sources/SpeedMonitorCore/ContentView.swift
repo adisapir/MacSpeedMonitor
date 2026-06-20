@@ -1350,6 +1350,23 @@ private struct WiFiNetworkPopover: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 wifiDetailRow("SSID", network.ssid)
+                if network.isConnected,
+                   let routerIPAddress = network.routerIPAddress,
+                   let routerLoginURL = network.routerLoginURL {
+                    Link(destination: routerLoginURL) {
+                        HStack {
+                            Text("Router IP")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(routerIPAddress)
+                                .fontWeight(.medium)
+                            Image(systemName: "arrow.up.right.square")
+                        }
+                        .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open the router login page")
+                }
                 wifiDetailRow("Vendor", network.vendorName)
                 wifiDetailRow("Signal", "\(network.signalPercentage)% (\(network.rssi) dBm)")
                 wifiDetailRow("Security", network.securityDescription)
@@ -1411,6 +1428,22 @@ private struct WiFiNetworkRow: View {
                     Text("\(network.vendorName) • \(network.securityDescription)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    if network.isConnected,
+                       let routerIPAddress = network.routerIPAddress,
+                       let routerLoginURL = network.routerLoginURL {
+                        Link(destination: routerLoginURL) {
+                            HStack(spacing: 4) {
+                                Text("Router: \(routerIPAddress)")
+                                Image(systemName: "arrow.up.right.square")
+                            }
+                            .font(.caption)
+                            .fontWeight(.medium)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.blue)
+                        .help("Open http://\(routerIPAddress)")
+                    }
 
                     HStack(spacing: 12) {
                         wifiRowDetail("Wi-Fi", network.routerGeneration)
@@ -1477,6 +1510,7 @@ private struct WiFiNetworkRow: View {
             "Connected: \(network.isConnected ? "Yes" : "No")",
             "Signal: \(network.signalPercentage)% (\(network.rssi) dBm)",
             "Wi-Fi Generation: \(network.routerGeneration)",
+            "Router IP: \(network.routerIPAddress ?? "Unknown")",
             "Band: \(network.band.rawValue)",
             "Channel: \(network.channel)",
             "Channel Width: \(network.channelWidth)",

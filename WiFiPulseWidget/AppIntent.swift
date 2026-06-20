@@ -9,10 +9,20 @@ import WidgetKit
 import AppIntents
 
 struct ConfigurationAppIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource { "Configuration" }
-    static var description: IntentDescription { "This is an example widget." }
+    static var title: LocalizedStringResource { "Speed Display" }
+    static var description: IntentDescription { "Choose how WiFiPulse displays network throughput." }
 
-    // An example configurable parameter.
-    @Parameter(title: "Favorite Emoji", default: "😃")
-    var favoriteEmoji: String
+    @Parameter(title: "Unit", default: .bytes)
+    var unit: WidgetSpeedUnit
+}
+
+enum WidgetSpeedUnit: String, AppEnum {
+    case bytes
+    case bits
+
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Speed Unit")
+    static var caseDisplayRepresentations: [WidgetSpeedUnit: DisplayRepresentation] = [
+        .bytes: "Bytes per second",
+        .bits: "Bits per second"
+    ]
 }
