@@ -43,6 +43,18 @@ public enum DeviceAIRecognitionState: Sendable, Equatable {
     case failed(String)
 }
 
+extension DiscoveredNetworkDevice {
+    func displayName(aiState: DeviceAIRecognitionState?) -> String {
+        guard displayName == "Unknown Device",
+              case .recognized(let recognition) = aiState else {
+            return displayName
+        }
+
+        let suggestedName = recognition.suggestedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return suggestedName.isEmpty ? displayName : suggestedName
+    }
+}
+
 struct AIRecognitionInput: Codable, Sendable, Equatable {
     let itemID: String
     let hostname: String?

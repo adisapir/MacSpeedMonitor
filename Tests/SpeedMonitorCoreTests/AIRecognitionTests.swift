@@ -105,6 +105,47 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(batches.flatMap { $0 }, Array(0..<61))
     }
 
+    func testRecognizedNameReplacesOnlyUnknownDeviceFallback() throws {
+        let recognition = DeviceAIRecognition(
+            itemID: "item-1",
+            suggestedName: "  Smart speaker  ",
+            category: "Audio",
+            likelyPurpose: "Playing media",
+            confidence: .medium,
+            rationale: "Vendor evidence",
+            limitations: "Exact model unknown"
+        )
+        let state = DeviceAIRecognitionState.recognized(recognition)
+        let unknownDevice = try XCTUnwrap(DiscoveredNetworkDevice(ipv4Address: "192.168.1.20"))
+        let namedDevice = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.21",
+            hostname: "printer.local"
+        ))
+        let router = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.1",
+            isRouter: true
+        ))
+
+        XCTAssertEqual(unknownDevice.displayName(aiState: state), "Smart speaker")
+        XCTAssertEqual(namedDevice.displayName(aiState: state), "printer.local")
+        XCTAssertEqual(router.displayName(aiState: state), "Router")
+        XCTAssertEqual(unknownDevice.displayName(aiState: .analyzing), "Unknown Device")
+
+        let blankRecognition = DeviceAIRecognition(
+            itemID: "item-1",
+            suggestedName: " \n ",
+            category: "Unknown",
+            likelyPurpose: "Unknown",
+            confidence: .low,
+            rationale: "Insufficient evidence",
+            limitations: "Unable to recognize"
+        )
+        XCTAssertEqual(
+            unknownDevice.displayName(aiState: .recognized(blankRecognition)),
+            "Unknown Device"
+        )
+    }
+
     func testKeychainStoreSavesReplacesAndRemovesKey() throws {
         let store = OpenAIAPIKeyStore(
             service: "com.adisapir.MacSpeedMonitor.tests.\(UUID().uuidString)",

@@ -1251,10 +1251,10 @@ private struct NetworkDeviceRow: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
-                        Text(device.displayName)
+                        Text(resolvedDisplayName)
                             .font(.headline)
                             .lineLimit(1)
-                            .help(device.displayName)
+                            .help(resolvedDisplayName)
 
                         if device.isRouter {
                             badge("Router", color: .purple)
@@ -1342,7 +1342,10 @@ private struct NetworkDeviceRow: View {
                     }
                     .padding(.top, 6)
                 } label: {
-                    Label(insight.suggestedName, systemImage: "sparkles")
+                    Label(
+                        isUsingAISuggestedName ? "AI Insight" : insight.suggestedName,
+                        systemImage: "sparkles"
+                    )
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundStyle(.purple)
@@ -1401,7 +1404,7 @@ private struct NetworkDeviceRow: View {
     }
 
     private var allDetails: String {
-        var values = [device.displayName, "IP: \(device.ipv4Address)"]
+        var values = [resolvedDisplayName, "IP: \(device.ipv4Address)"]
         if let macAddress = device.macAddress { values.append("MAC: \(macAddress)") }
         if let vendorName = device.vendorName { values.append("Vendor: \(vendorName)") }
         if let responseTime = device.responseTimeMilliseconds {
@@ -1411,7 +1414,7 @@ private struct NetworkDeviceRow: View {
     }
 
     private var accessibilityDescription: String {
-        var values = [device.displayName, "IP address \(device.ipv4Address)"]
+        var values = [resolvedDisplayName, "IP address \(device.ipv4Address)"]
         if device.isRouter { values.append("Router") }
         if device.isLocalDevice { values.append("This Mac") }
         if device.isStale { values.append("From previous scan") }
@@ -1420,6 +1423,14 @@ private struct NetworkDeviceRow: View {
             values.append(String(format: "Response time %.1f milliseconds", responseTime))
         }
         return values.joined(separator: ", ")
+    }
+
+    private var resolvedDisplayName: String {
+        device.displayName(aiState: aiState)
+    }
+
+    private var isUsingAISuggestedName: Bool {
+        device.displayName == "Unknown Device" && resolvedDisplayName != device.displayName
     }
 }
 

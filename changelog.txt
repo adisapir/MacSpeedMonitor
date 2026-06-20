@@ -1,5 +1,6 @@
 2026-06-21 -
 	Added persistent local device and AI insight history matched by MAC address.
+	Replaced Unknown Device labels with recognized AI-suggested names.
 	Improved device discovery with hostname and DHCP hostname detection.
 	Added optional OpenAI-powered recognition for unknown network devices.
 	Enhanced local device discovery with MAC address and vendor identification.
