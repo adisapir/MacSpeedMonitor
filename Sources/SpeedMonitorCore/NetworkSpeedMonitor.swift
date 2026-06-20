@@ -49,12 +49,22 @@ public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var networkScanTotalTargets = 0
     @Published public private(set) var lastNetworkScanAt: Date?
     @Published public private(set) var networkScanWarning: String?
+    @Published public private(set) var aiRecognitionStates: [String: DeviceAIRecognitionState] = [:]
+    @Published public private(set) var isAIRecognitionRunning = false
+    @Published public private(set) var aiRecognitionCompletedCount = 0
+    @Published public private(set) var aiRecognitionTotalCount = 0
+    @Published public private(set) var aiRecognitionErrorDescription: String?
+    @Published public private(set) var hasOpenAIAPIKey = false
 
     private var timerCancellable: AnyCancellable?
     private var wifiScanTimerCancellable: AnyCancellable?
     private var networkScanTask: Task<Void, Never>?
     private var activeNetworkScanRequest: NetworkScanRequest?
     private var networkScanID: UUID?
+    private var networkScanGeneration = UUID()
+    private var aiRecognitionTask: Task<Void, Never>?
+    private var aiRecognitionID: UUID?
+    private let aiRecognitionProvider: any AIRecognitionProviding
     private var previousSnapshot: InterfaceSnapshot?
     private let samplingInterval: TimeInterval
     private var consecutiveFailureCount = 0
@@ -63,8 +73,20 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
     nonisolated private static let logger = Logger(subsystem: "MacSpeedMonitor", category: "NetworkSpeedMonitor")
 
-    public init(samplingInterval: TimeInterval = 1.0) {
+    public convenience init(samplingInterval: TimeInterval = 1.0) {
+        self.init(
+            samplingInterval: samplingInterval,
+            aiRecognitionProvider: OpenAIRecognitionProvider()
+        )
+    }
+
+    init(
+        samplingInterval: TimeInterval,
+        aiRecognitionProvider: any AIRecognitionProviding
+    ) {
         self.samplingInterval = max(0.2, samplingInterval)
+        self.aiRecognitionProvider = aiRecognitionProvider
+        self.hasOpenAIAPIKey = aiRecognitionProvider.hasAPIKey
         if case .success(let snapshot) = Self.captureSnapshot() {
             previousSnapshot = snapshot
         }
@@ -101,6 +123,9 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
     public func startNetworkScan() {
         guard networkScanPhase != .scanning else { return }
+
+        cancelAIRecognition()
+        networkScanGeneration = UUID()
 
         let request: NetworkScanRequest
         do {
@@ -179,6 +204,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
             var deviceStore = NetworkScanDeviceStore(devices: networkScanDevices)
             deviceStore.removeStaleDevices()
             networkScanDevices = deviceStore.sortedDevices
+            let activeIdentities = Set(networkScanDevices.map(\.aiIdentity))
+            aiRecognitionStates = aiRecognitionStates.filter { activeIdentities.contains($0.key) }
             lastNetworkScanAt = completedAt
             networkScanPhase = .completed
             if let scanID = networkScanID {
@@ -197,6 +224,121 @@ public final class NetworkSpeedMonitor: ObservableObject {
         guard networkScanID == scanID else { return }
         networkScanTask = nil
         activeNetworkScanRequest = nil
+    }
+
+    public var unknownDevicesForAIRecognition: [DiscoveredNetworkDevice] {
+        networkScanDevices.filter(\.isUnknownForAIRecognition)
+    }
+
+    public func refreshOpenAIAPIKeyAvailability() {
+        hasOpenAIAPIKey = aiRecognitionProvider.hasAPIKey
+    }
+
+    public func startAIRecognitionForUnknownDevices() {
+        startAIRecognition(for: unknownDevicesForAIRecognition)
+    }
+
+    public func startAIRecognition(for device: DiscoveredNetworkDevice) {
+        startAIRecognition(for: [device])
+    }
+
+    public func cancelAIRecognition() {
+        guard isAIRecognitionRunning else { return }
+        aiRecognitionTask?.cancel()
+        aiRecognitionTask = nil
+        aiRecognitionID = nil
+        isAIRecognitionRunning = false
+        let analyzingIdentities = aiRecognitionStates.compactMap { identity, state in
+            state == .analyzing ? identity : nil
+        }
+        for identity in analyzingIdentities {
+            aiRecognitionStates[identity] = .failed("AI recognition was cancelled.")
+        }
+    }
+
+    private func startAIRecognition(for requestedDevices: [DiscoveredNetworkDevice]) {
+        guard !isAIRecognitionRunning, networkScanPhase != .scanning else { return }
+        refreshOpenAIAPIKeyAvailability()
+        guard hasOpenAIAPIKey else {
+            aiRecognitionErrorDescription = AIRecognitionError.missingAPIKey.localizedDescription
+            return
+        }
+
+        let devices = requestedDevices.filter(\.isUnknownForAIRecognition)
+        guard !devices.isEmpty else { return }
+        let recognitionID = UUID()
+        let generation = networkScanGeneration
+        aiRecognitionID = recognitionID
+        aiRecognitionCompletedCount = 0
+        aiRecognitionTotalCount = devices.count
+        aiRecognitionErrorDescription = nil
+        isAIRecognitionRunning = true
+        for device in devices {
+            aiRecognitionStates[device.aiIdentity] = .analyzing
+        }
+
+        aiRecognitionTask = Task { [weak self] in
+            guard let self else { return }
+            let batches = AIRecognitionBatcher.batches(from: devices)
+
+            for batch in batches {
+                if Task.isCancelled { return }
+                let mappings = Dictionary(uniqueKeysWithValues: batch.enumerated().map { offset, device in
+                    ("item-\(self.aiRecognitionCompletedCount + offset + 1)", device.aiIdentity)
+                })
+                let inputs = batch.enumerated().map { offset, device in
+                    AIRecognitionInput(
+                        itemID: "item-\(self.aiRecognitionCompletedCount + offset + 1)",
+                        device: device
+                    )
+                }
+
+                do {
+                    let recognitions = try await self.aiRecognitionProvider.recognize(inputs)
+                    guard self.aiRecognitionID == recognitionID,
+                          self.networkScanGeneration == generation,
+                          !Task.isCancelled
+                    else { return }
+                    for recognition in recognitions {
+                        guard let identity = mappings[recognition.itemID] else { continue }
+                        if recognition.suggestedName.caseInsensitiveCompare("Unable to recognize") == .orderedSame {
+                            self.aiRecognitionStates[identity] = .insufficient(recognition.limitations)
+                        } else {
+                            self.aiRecognitionStates[identity] = .recognized(recognition)
+                        }
+                    }
+                    self.aiRecognitionCompletedCount += batch.count
+                } catch is CancellationError {
+                    return
+                } catch let error as AIRecognitionError {
+                    guard self.aiRecognitionID == recognitionID else { return }
+                    for identity in mappings.values {
+                        if case .analyzing = self.aiRecognitionStates[identity] {
+                            if case .refused(let reason) = error {
+                                self.aiRecognitionStates[identity] = .refused(reason)
+                            } else {
+                                self.aiRecognitionStates[identity] = .failed(error.localizedDescription)
+                            }
+                        }
+                    }
+                    self.aiRecognitionErrorDescription = error.localizedDescription
+                    break
+                } catch {
+                    guard self.aiRecognitionID == recognitionID else { return }
+                    for identity in mappings.values {
+                        self.aiRecognitionStates[identity] = .failed(error.localizedDescription)
+                    }
+                    self.aiRecognitionErrorDescription = error.localizedDescription
+                    break
+                }
+            }
+
+            if self.aiRecognitionID == recognitionID {
+                self.isAIRecognitionRunning = false
+                self.aiRecognitionTask = nil
+                self.aiRecognitionID = nil
+            }
+        }
     }
 
     public func startWiFiScanning(refreshInterval: TimeInterval = 30) {

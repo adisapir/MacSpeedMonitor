@@ -16,6 +16,9 @@ let package = Package(
             path: "Sources/SpeedMonitorCore",
             resources: [
                 .process("Resources/oui-vendors.tsv"),
+            ],
+            linkerSettings: [
+                .linkedFramework("Security"),
             ]
         ),
         .executableTarget(

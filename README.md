@@ -23,6 +23,7 @@ The app source of truth remains under `Sources/`. The Xcode project reuses the e
 - **Modern User Interface** — glassmorphic "Liquid Glass" cards with glowing gradients, hover scaling, and dark/light/system theme support
 - **Network Interfaces** — active non-loopback adapters only, showing IP address, Wi-Fi link rate (via `CoreWLAN`), wired link speed (via `IOKit`), and friendly Wi-Fi generation label (Wi-Fi 5 through Wi-Fi 7); auto-refreshed via `NWPathMonitor` + manual Refresh button
 - **Local Network Scanner** — manually discover responding devices on the current private IPv4 subnet from the Connected Network tab, with incremental progress, cancellation, hostname and response-time details, and Router / This Mac identification
+- **Optional AI Device Recognition** — use your own OpenAI API key to request cautious, inline recognition suggestions for unknown scanner entries, individually or in redacted batches
 - **Wi-Fi Scan Radar** — nearby Wi-Fi networks shown as a radar map with signal-sized dots, 2.4/5/6 GHz band colors, connected-network highlighting, hover detail popovers, manual refresh, and 30 s auto-refresh; extended details include SSID, BSSID, vendor/OUI, signal percentage, router Wi-Fi generation, channel width, same/overlapping-channel AP counts, country code, and security, with right-click copy for a scanned router's full details
 - **Dynamic Dock App Icon** — dynamically rendered vector speed logo on startup
 - **Appearance & Unit Settings** — configure theme (Light / Dark / Match System), speed units (MB/s vs Mbps), and throughput history duration
@@ -89,6 +90,19 @@ The SwiftPM executable embeds `Sources/MacSpeedMonitorApp/Info.plist` at link ti
 Open **Connected Network** and choose **Scan Network** to check the Mac's directly connected private IPv4 network. Scans are always manual, are limited to networks containing no more than 256 addresses, and do not probe service ports or inspect network payloads.
 
 Results remain local to the current app session and are not saved or uploaded. Host firewalls, sleeping devices, guest-network isolation, and router policy can prevent devices from responding, so the result list may not contain every connected device. Hostnames, hardware addresses, vendors, and response times are shown only when macOS and the responding device make them available.
+
+### AI Device Recognition (Optional)
+
+The Connected Network scanner can ask OpenAI for a cautious category suggestion for entries shown as **Unknown Device**. Configure your own OpenAI API key under **Settings > AI Device Recognition**, then use **AI Scan** for all unknown devices or right-click one device and choose **Recognize Device through AI**.
+
+- The key is stored in macOS Keychain and is never included in source code, preferences, or logs.
+- Requests use `gpt-5.4-mini` through OpenAI's Responses API and are billed to the user's OpenAI account.
+- Only a temporary item ID, vendor name, Router / This Mac flags, and response time are sent. Private IP addresses and MAC addresses are never sent.
+- Requests contain at most 25 devices per batch, do not use web search or tools, and are not automatically retried.
+- Results are labeled as unverified AI suggestions, stay only in memory for the current app session, and never replace scanner facts.
+- Vendor and timing metadata may be insufficient to recognize a device. A low-confidence or unavailable result is expected rather than a definitive identity.
+
+API keys stored in a local desktop application do not have server-grade isolation. Use a dedicated OpenAI project key with appropriate usage limits, and remove it from Settings when it is no longer needed.
 
 ## Wi-Fi Vendor/OUI Data
 

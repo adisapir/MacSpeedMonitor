@@ -833,6 +833,9 @@ struct DashboardView: View {
 
 struct NetworkInfoView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
+    @AppStorage("aiRecognitionPrivacyAccepted") private var aiPrivacyAccepted = false
+    @State private var showingAIPrivacyDisclosure = false
+    @State private var pendingAIIdentity: String?
     
     var body: some View {
         ScrollView {
@@ -1008,6 +1011,7 @@ struct NetworkInfoView: View {
                     ]
                 )
 
+                aiScanActionButton
                 networkScanActionButton
             }
 
@@ -1036,6 +1040,25 @@ struct NetworkInfoView: View {
                     .foregroundStyle(.orange)
             }
 
+            if monitor.isAIRecognitionRunning {
+                VStack(alignment: .leading, spacing: 6) {
+                    ProgressView(
+                        value: Double(monitor.aiRecognitionCompletedCount),
+                        total: Double(max(monitor.aiRecognitionTotalCount, 1))
+                    )
+                    .accessibilityLabel("AI device recognition progress")
+                    Text("Recognizing \(monitor.aiRecognitionCompletedCount) of \(monitor.aiRecognitionTotalCount) unknown devices")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let error = monitor.aiRecognitionErrorDescription {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+            }
+
             if monitor.networkScanDevices.isEmpty {
                 if monitor.networkScanPhase != .idle && monitor.networkScanPhase != .scanning {
                     Text("No responding devices were found.")
@@ -1046,13 +1069,92 @@ struct NetworkInfoView: View {
             } else {
                 VStack(spacing: 10) {
                     ForEach(monitor.networkScanDevices) { device in
-                        NetworkDeviceRow(device: device, copyAction: copyToClipboard)
+                        NetworkDeviceRow(
+                            device: device,
+                            aiState: monitor.aiRecognitionStates[device.aiIdentity],
+                            copyAction: copyToClipboard,
+                            recognizeAction: device.isUnknownForAIRecognition
+                                ? { requestAIRecognition(for: device) }
+                                : nil
+                        )
                     }
                 }
             }
         }
         .padding(.horizontal)
         .padding(.bottom, 20)
+        .alert("Use OpenAI Device Recognition?", isPresented: $showingAIPrivacyDisclosure) {
+            Button("Cancel", role: .cancel) {
+                pendingAIIdentity = nil
+            }
+            Button("Continue") {
+                aiPrivacyAccepted = true
+                performPendingAIRecognition()
+            }
+        } message: {
+            Text("Redacted device metadata—vendor, role flags, and response time—will be sent to OpenAI using your API key. IP addresses and MAC addresses are never sent. AI results are suggestions and may be inaccurate.")
+        }
+    }
+
+    @ViewBuilder
+    private var aiScanActionButton: some View {
+        if monitor.isAIRecognitionRunning {
+            Button(role: .cancel) {
+                monitor.cancelAIRecognition()
+            } label: {
+                Label("Cancel AI", systemImage: "xmark.circle")
+            }
+            .buttonStyle(.bordered)
+        } else if !monitor.hasOpenAIAPIKey {
+            Button {
+                NotificationCenter.default.post(
+                    name: .selectTabNotification,
+                    object: ContentView.Tab.settings
+                )
+            } label: {
+                Label("Configure AI", systemImage: "key.fill")
+            }
+            .buttonStyle(.bordered)
+            .disabled(monitor.networkScanPhase == .scanning)
+        } else {
+            Button {
+                requestAIRecognition(for: nil)
+            } label: {
+                Label(
+                    "AI Scan (\(monitor.unknownDevicesForAIRecognition.count))",
+                    systemImage: "sparkles"
+                )
+            }
+            .buttonStyle(.bordered)
+            .disabled(
+                monitor.networkScanPhase == .scanning
+                    || monitor.unknownDevicesForAIRecognition.isEmpty
+            )
+        }
+    }
+
+    private func requestAIRecognition(for device: DiscoveredNetworkDevice?) {
+        monitor.refreshOpenAIAPIKeyAvailability()
+        guard monitor.hasOpenAIAPIKey else {
+            NotificationCenter.default.post(name: .selectTabNotification, object: ContentView.Tab.settings)
+            return
+        }
+        pendingAIIdentity = device?.aiIdentity
+        if aiPrivacyAccepted {
+            performPendingAIRecognition()
+        } else {
+            showingAIPrivacyDisclosure = true
+        }
+    }
+
+    private func performPendingAIRecognition() {
+        if let identity = pendingAIIdentity,
+           let device = monitor.networkScanDevices.first(where: { $0.aiIdentity == identity }) {
+            monitor.startAIRecognition(for: device)
+        } else {
+            monitor.startAIRecognitionForUnknownDevices()
+        }
+        pendingAIIdentity = nil
     }
 
     @ViewBuilder
@@ -1121,7 +1223,10 @@ struct NetworkInfoView: View {
 
 private struct NetworkDeviceRow: View {
     let device: DiscoveredNetworkDevice
+    let aiState: DeviceAIRecognitionState?
     let copyAction: (String) -> Void
+    let recognizeAction: (() -> Void)?
+    @State private var isAIInsightExpanded = false
 
     var body: some View {
         GlassCard(glowColor: device.isRouter ? .purple : (device.isLocalDevice ? .blue : .cyan)) {
@@ -1165,6 +1270,8 @@ private struct NetworkDeviceRow: View {
                             .lineLimit(1)
                             .help(vendorName)
                     }
+
+                    aiInsight
                 }
 
                 Spacer(minLength: 0)
@@ -1179,6 +1286,81 @@ private struct NetworkDeviceRow: View {
                 Button("Copy MAC Address") { copyAction(macAddress) }
             }
             Button("Copy All Details") { copyAction(allDetails) }
+            if let recognizeAction {
+                Divider()
+                Button {
+                    recognizeAction()
+                } label: {
+                    Label("Recognize Device through AI", systemImage: "sparkles")
+                }
+            }
+        }
+        .onChange(of: aiState) { _, state in
+            if case .recognized = state { isAIInsightExpanded = true }
+            if case .insufficient = state { isAIInsightExpanded = true }
+        }
+    }
+
+    @ViewBuilder
+    private var aiInsight: some View {
+        if let aiState {
+            Divider()
+            switch aiState {
+            case .analyzing:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Analyzing redacted metadata with OpenAI...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            case .recognized(let insight):
+                DisclosureGroup(isExpanded: $isAIInsightExpanded) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        aiDetail("Category", insight.category)
+                        aiDetail("Likely purpose", insight.likelyPurpose)
+                        aiDetail("Confidence", insight.confidence.rawValue.capitalized)
+                        aiDetail("Why", insight.rationale)
+                        aiDetail("Limitations", insight.limitations)
+                        Text("AI suggestion—not verified")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.top, 6)
+                } label: {
+                    Label(insight.suggestedName, systemImage: "sparkles")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.purple)
+                }
+            case .insufficient(let reason):
+                DisclosureGroup("AI could not recognize this device", isExpanded: $isAIInsightExpanded) {
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
+            case .refused(let reason):
+                Label(reason, systemImage: "hand.raised.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            case .failed(let message):
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func aiDetail(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption)
+                .textSelection(.enabled)
         }
     }
 
@@ -1892,9 +2074,14 @@ struct AboutView: View {
 // MARK: - Settings View
 
 struct SettingsView: View {
+    @EnvironmentObject private var monitor: NetworkSpeedMonitor
     @AppStorage("appTheme") private var appTheme: AppTheme = .system
     @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .bytes
     @AppStorage("historyDurationSeconds") private var historyDurationSeconds: Int = 60
+    @State private var openAIKeyInput = ""
+    @State private var openAIStatusMessage: String?
+    @State private var openAIStatusIsError = false
+    @State private var isTestingOpenAI = false
     
     var body: some View {
         ScrollView {
@@ -1978,9 +2165,108 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+
+                    GlassCard(glowColor: .mint) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("AI Device Recognition", systemImage: "sparkles")
+                                .font(.headline)
+                                .foregroundStyle(.mint)
+
+                            Text("Use your own OpenAI API key to get cautious AI suggestions for unknown network devices. The key is stored in macOS Keychain.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            SecureField(
+                                monitor.hasOpenAIAPIKey ? "Enter a replacement key" : "OpenAI API key",
+                                text: $openAIKeyInput
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .privacySensitive()
+
+                            HStack {
+                                Button(monitor.hasOpenAIAPIKey ? "Replace Key" : "Save Key") {
+                                    saveOpenAIKey()
+                                }
+                                .disabled(openAIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                                Button("Test Connection") {
+                                    testOpenAIConnection()
+                                }
+                                .disabled(!monitor.hasOpenAIAPIKey || isTestingOpenAI)
+
+                                if monitor.hasOpenAIAPIKey {
+                                    Button("Remove Key", role: .destructive) {
+                                        removeOpenAIKey()
+                                    }
+                                }
+
+                                if isTestingOpenAI { ProgressView().controlSize(.small) }
+                            }
+
+                            Label(
+                                monitor.hasOpenAIAPIKey ? "API key stored in Keychain" : "No API key configured",
+                                systemImage: monitor.hasOpenAIAPIKey ? "checkmark.shield.fill" : "key"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(monitor.hasOpenAIAPIKey ? .green : .secondary)
+
+                            if let openAIStatusMessage {
+                                Text(openAIStatusMessage)
+                                    .font(.caption)
+                                    .foregroundStyle(openAIStatusIsError ? .orange : .green)
+                            }
+
+                            Text("AI Scan sends only vendor, role flags, and response time. IP and MAC addresses are never sent. Results are not verified and remain only for this app session.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 .padding(.horizontal)
             }
+        }
+        .onAppear { monitor.refreshOpenAIAPIKeyAvailability() }
+    }
+
+    private func saveOpenAIKey() {
+        do {
+            try OpenAIAPIKeyStore.shared.saveKey(openAIKeyInput)
+            openAIKeyInput = ""
+            openAIStatusMessage = "API key saved securely."
+            openAIStatusIsError = false
+            monitor.refreshOpenAIAPIKeyAvailability()
+        } catch {
+            openAIStatusMessage = error.localizedDescription
+            openAIStatusIsError = true
+        }
+    }
+
+    private func removeOpenAIKey() {
+        do {
+            try OpenAIAPIKeyStore.shared.removeKey()
+            openAIKeyInput = ""
+            openAIStatusMessage = "API key removed."
+            openAIStatusIsError = false
+            monitor.refreshOpenAIAPIKeyAvailability()
+        } catch {
+            openAIStatusMessage = error.localizedDescription
+            openAIStatusIsError = true
+        }
+    }
+
+    private func testOpenAIConnection() {
+        isTestingOpenAI = true
+        openAIStatusMessage = nil
+        Task {
+            do {
+                try await OpenAIRecognitionProvider().testConnection()
+                openAIStatusMessage = "Connected to OpenAI and confirmed gpt-5.4-mini access."
+                openAIStatusIsError = false
+            } catch {
+                openAIStatusMessage = error.localizedDescription
+                openAIStatusIsError = true
+            }
+            isTestingOpenAI = false
         }
     }
 }

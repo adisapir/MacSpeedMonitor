@@ -18,6 +18,7 @@
 		DDA727700000000000000015 /* WiFiNetworkInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA727700000000000000115 /* WiFiNetworkInfo.swift */; };
 		DDA727700000000000000016 /* OUIVendorLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA727700000000000000118 /* OUIVendorLookup.swift */; };
 		DDA727700000000000000017 /* Resources/oui-vendors.tsv in Resources */ = {isa = PBXBuildFile; fileRef = DDA727700000000000000119 /* Resources/oui-vendors.tsv */; };
+		DDA727700000000000000018 /* AIRecognition.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA727700000000000000120 /* AIRecognition.swift */; };
 		DDDAA4C82FE5DAB40003B145 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDAA4C72FE5DAB40003B145 /* WidgetKit.framework */; };
 		DDDAA4CA2FE5DAB40003B145 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDAA4C92FE5DAB40003B145 /* SwiftUI.framework */; };
 		DDDAA4D92FE5DAB60003B145 /* WiFiPulseWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DDDAA4C52FE5DAB40003B145 /* WiFiPulseWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -79,6 +80,7 @@
 		DDA727700000000000000117 /* MacSpeedMonitor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MacSpeedMonitor.entitlements; sourceTree = "<group>"; };
 		DDA727700000000000000118 /* OUIVendorLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OUIVendorLookup.swift; sourceTree = "<group>"; };
 		DDA727700000000000000119 /* Resources/oui-vendors.tsv */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Resources/oui-vendors.tsv"; sourceTree = "<group>"; };
+		DDA727700000000000000120 /* AIRecognition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRecognition.swift; sourceTree = "<group>"; };
 		DDDAA4C52FE5DAB40003B145 /* WiFiPulseWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WiFiPulseWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DDDAA4C72FE5DAB40003B145 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		DDDAA4C92FE5DAB40003B145 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -176,6 +178,7 @@
 		DDA727700000000000000155 /* SpeedMonitorCore */ = {
 			isa = PBXGroup;
 			children = (
+				DDA727700000000000000120 /* AIRecognition.swift */,
 				DDA727700000000000000111 /* ContentView.swift */,
 				DDA727700000000000000112 /* LocationPermissionManager.swift */,
 				DDA727700000000000000113 /* NetworkInterfaceInfo.swift */,
@@ -342,6 +345,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DDA727700000000000000018 /* AIRecognition.swift in Sources */,
 				DDA727700000000000000011 /* ContentView.swift in Sources */,
 				DDA727700000000000000012 /* LocationPermissionManager.swift in Sources */,
 				DDA727700000000000000013 /* NetworkInterfaceInfo.swift in Sources */,
