@@ -2,6 +2,33 @@ import XCTest
 @testable import SpeedMonitorCore
 
 final class NetworkScannerTests: XCTestCase {
+    func testLiveScannerRecognizesLocalNetworkDevicesWhenEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["LIVE_NETWORK_SCAN"] == "1" else {
+            throw XCTSkip("Set LIVE_NETWORK_SCAN=1 to exercise the production scanner on the current LAN.")
+        }
+
+        let request = try ActiveNetworkScanResolver.resolve()
+        var devicesByAddress: [String: DiscoveredNetworkDevice] = [:]
+
+        for try await event in LocalNetworkScanner().scan(request: request) {
+            if case .device(let device) = event {
+                devicesByAddress[device.ipv4Address] = device
+            }
+        }
+
+        XCTAssertNotNil(devicesByAddress[request.localIPv4Address])
+        if let routerAddress = request.routerIPv4Address {
+            XCTAssertNotNil(devicesByAddress[routerAddress])
+        }
+        let responsiveCount = devicesByAddress.values.filter { $0.responseTimeMilliseconds != nil }.count
+        let enrichedCount = devicesByAddress.values.filter { $0.hostname != nil || $0.macAddress != nil }.count
+        print("Live scan recognized \(devicesByAddress.count) devices; \(responsiveCount) responded and \(enrichedCount) had hostname or MAC metadata.")
+        XCTAssertTrue(
+            responsiveCount > 0,
+            "No device returned an ICMP response on the current LAN."
+        )
+    }
+
     func testSlash24RequestDerivesExpectedRange() throws {
         let request = try NetworkScanRequest.make(
             interfaceName: "en0",

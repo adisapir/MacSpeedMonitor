@@ -251,6 +251,8 @@ struct LocalNetworkScanner: NetworkScanning {
                                     if let device = DiscoveredNetworkDevice(
                                         ipv4Address: result.address,
                                         hostname: Self.resolveHostname(for: result.address),
+                                        macAddress: result.macAddress,
+                                        vendorName: Self.vendorName(for: result.macAddress),
                                         responseTimeMilliseconds: result.responseTimeMilliseconds,
                                         isRouter: result.address == request.routerIPv4Address,
                                         lastSeenAt: Date()
@@ -354,18 +356,102 @@ struct LocalNetworkScanner: NetworkScanning {
 
         var response = [UInt8](repeating: 0, count: 128)
         let responseCapacity = response.count
+        var source = sockaddr_in()
+        var sourceLength = socklen_t(MemoryLayout<sockaddr_in>.size)
         let received = response.withUnsafeMutableBytes { pointer in
-            recv(descriptor, pointer.baseAddress, responseCapacity, 0)
+            withUnsafeMutablePointer(to: &source) { sourcePointer in
+                sourcePointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                    recvfrom(
+                        descriptor,
+                        pointer.baseAddress,
+                        responseCapacity,
+                        0,
+                        socketAddress,
+                        &sourceLength
+                    )
+                }
+            }
         }
-        guard received >= 8, response[0] == 0 else {
+        let containsIPv4Header = received >= 20 && response[0] >> 4 == 4
+        let icmpOffset = containsIPv4Header ? Int(response[0] & 0x0F) * 4 : 0
+        let replySequence = received >= icmpOffset + 8
+            ? UInt16(response[icmpOffset + 6]) << 8 | UInt16(response[icmpOffset + 7])
+            : UInt16.max
+        guard received >= icmpOffset + 8,
+              response[icmpOffset] == 0,
+              source.sin_addr.s_addr == destination.sin_addr.s_addr,
+              replySequence == sequence
+        else {
             return ProbeResult(address: address, responseTimeMilliseconds: nil)
         }
 
         let elapsed = DispatchTime.now().uptimeNanoseconds - startedAt
         return ProbeResult(
             address: address,
-            responseTimeMilliseconds: Double(elapsed) / 1_000_000
+            responseTimeMilliseconds: Double(elapsed) / 1_000_000,
+            macAddress: neighborMACAddress(for: address)
         )
+    }
+
+    nonisolated private static func neighborMACAddress(for address: String) -> String? {
+        guard let target = IPv4AddressValue(address) else { return nil }
+        var mib = [Int32(CTL_NET), Int32(PF_ROUTE), 0, Int32(AF_INET), Int32(NET_RT_FLAGS), Int32(RTF_LLINFO)]
+        var requiredLength = 0
+        guard sysctl(&mib, UInt32(mib.count), nil, &requiredLength, nil, 0) == 0,
+              requiredLength > 0
+        else { return nil }
+
+        var buffer = [UInt8](repeating: 0, count: requiredLength)
+        let status = buffer.withUnsafeMutableBytes { bytes in
+            sysctl(&mib, UInt32(mib.count), bytes.baseAddress, &requiredLength, nil, 0)
+        }
+        guard status == 0 else { return nil }
+
+        var messageOffset = 0
+        while messageOffset + MemoryLayout<rt_msghdr2>.size <= requiredLength {
+            let header = buffer.withUnsafeBytes {
+                $0.loadUnaligned(fromByteOffset: messageOffset, as: rt_msghdr2.self)
+            }
+            let messageLength = Int(header.rtm_msglen)
+            guard messageLength > 0, messageOffset + messageLength <= requiredLength else { break }
+
+            var socketAddressOffset = messageOffset + MemoryLayout<rt_msghdr2>.size
+            var destination: UInt32?
+            var macAddress: String?
+
+            for addressIndex in 0..<Int(RTAX_MAX) where (header.rtm_addrs & (1 << Int32(addressIndex))) != 0 {
+                guard socketAddressOffset + 2 <= messageOffset + messageLength else { break }
+                let length = Int(buffer[socketAddressOffset])
+                let family = Int32(buffer[socketAddressOffset + 1])
+                let paddedLength = length > 0 ? (length + 3) & ~3 : 4
+                guard socketAddressOffset + paddedLength <= messageOffset + messageLength else { break }
+
+                if addressIndex == RTAX_DST, family == AF_INET,
+                   length >= MemoryLayout<sockaddr_in>.size {
+                    let socketAddress = buffer.withUnsafeBytes {
+                        $0.loadUnaligned(fromByteOffset: socketAddressOffset, as: sockaddr_in.self)
+                    }
+                    destination = UInt32(bigEndian: socketAddress.sin_addr.s_addr)
+                } else if addressIndex == RTAX_GATEWAY, family == AF_LINK, length >= 8 {
+                    let nameLength = Int(buffer[socketAddressOffset + 5])
+                    let addressLength = Int(buffer[socketAddressOffset + 6])
+                    let addressStart = socketAddressOffset + 8 + nameLength
+                    if addressLength == 6, addressStart + addressLength <= socketAddressOffset + length {
+                        macAddress = buffer[addressStart..<(addressStart + addressLength)]
+                            .map { String(format: "%02X", $0) }
+                            .joined(separator: ":")
+                    }
+                }
+
+                socketAddressOffset += paddedLength
+            }
+
+            if destination == target.rawValue, let macAddress {
+                return macAddress
+            }
+            messageOffset += messageLength
+        }
+        return nil
     }
 
     nonisolated private static func icmpChecksum(_ bytes: [UInt8]) -> UInt16 {
@@ -600,7 +686,14 @@ struct NetworkScanDeviceStore: Sendable {
 private struct ProbeResult: Sendable {
     let address: String
     let responseTimeMilliseconds: Double?
+    let macAddress: String?
     var isReachable: Bool { responseTimeMilliseconds != nil }
+
+    init(address: String, responseTimeMilliseconds: Double?, macAddress: String? = nil) {
+        self.address = address
+        self.responseTimeMilliseconds = responseTimeMilliseconds
+        self.macAddress = macAddress
+    }
 }
 
 private extension String {

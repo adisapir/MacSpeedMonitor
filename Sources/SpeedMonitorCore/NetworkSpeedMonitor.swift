@@ -690,6 +690,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
             let isRunning = (flags & IFF_RUNNING) != 0
             let isLoopback = (flags & IFF_LOOPBACK) != 0
             let isVirtualTunnel = Self.isVirtualTunnelInterface(named: name)
+            let isCommonHardwareInterface = name.hasPrefix("en")
 
             var addressString: String? = nil
             var familyString = "Unknown"
@@ -718,7 +719,12 @@ public final class NetworkSpeedMonitor: ObservableObject {
             }
 
             // Only display active connections, exclude loopbacks
-            if (familyString == "IPv4" || familyString == "IPv6") && isUp && isRunning && !isLoopback && !isVirtualTunnel {
+            if (familyString == "IPv4" || familyString == "IPv6")
+                && isUp
+                && isRunning
+                && !isLoopback
+                && !isVirtualTunnel
+                && isCommonHardwareInterface {
                 var linkSpeed: String? = nil
                 var txRate: Double? = nil
                 var rxRate: Double? = nil
@@ -763,7 +769,10 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
             current = interface.ifa_next
         }
-        return interfaces
+        let preferredByInterface = Dictionary(grouping: interfaces, by: \.name).compactMap { _, addresses in
+            addresses.first(where: { $0.family == "IPv4" }) ?? addresses.first
+        }
+        return preferredByInterface.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     private func tick() {
