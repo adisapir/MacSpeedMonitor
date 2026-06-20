@@ -22,6 +22,7 @@ The app source of truth remains under `Sources/`. The Xcode project reuses the e
 - **macOS Menu Bar Commands** — Settings (Cmd+,) and About commands switch window views directly
 - **Modern User Interface** — glassmorphic "Liquid Glass" cards with glowing gradients, hover scaling, and dark/light/system theme support
 - **Network Interfaces** — active non-loopback adapters only, showing IP address, Wi-Fi link rate (via `CoreWLAN`), wired link speed (via `IOKit`), and friendly Wi-Fi generation label (Wi-Fi 5 through Wi-Fi 7); auto-refreshed via `NWPathMonitor` + manual Refresh button
+- **Local Network Scanner** — manually discover responding devices on the current private IPv4 subnet from the Connected Network tab, with incremental progress, cancellation, hostname and response-time details, and Router / This Mac identification
 - **Wi-Fi Scan Radar** — nearby Wi-Fi networks shown as a radar map with signal-sized dots, 2.4/5/6 GHz band colors, connected-network highlighting, hover detail popovers, manual refresh, and 30 s auto-refresh; extended details include SSID, BSSID, vendor/OUI, signal percentage, router Wi-Fi generation, channel width, same/overlapping-channel AP counts, country code, and security, with right-click copy for a scanned router's full details
 - **Dynamic Dock App Icon** — dynamically rendered vector speed logo on startup
 - **Appearance & Unit Settings** — configure theme (Light / Dark / Match System), speed units (MB/s vs Mbps), and throughput history duration
@@ -82,6 +83,12 @@ xcodebuild -project WiFiPulse.xcodeproj -scheme MacSpeedMonitor -configuration D
 macOS requires Location Services permission before third-party apps can read Wi-Fi SSID/BSSID details through `CoreWLAN`. Open the Wi-Fi Scan pane to trigger the permission request. If denied, enable Location Services for MacSpeedMonitor in System Settings.
 
 The SwiftPM executable embeds `Sources/MacSpeedMonitorApp/Info.plist` at link time so the location usage description is available when running with `swift run`. The Xcode app target uses the same plist and the dedicated entitlements file for the signed app bundle.
+
+## Local Network Scanner
+
+Open **Connected Network** and choose **Scan Network** to check the Mac's directly connected private IPv4 network. Scans are always manual, are limited to networks containing no more than 256 addresses, and do not probe service ports or inspect network payloads.
+
+Results remain local to the current app session and are not saved or uploaded. Host firewalls, sleeping devices, guest-network isolation, and router policy can prevent devices from responding, so the result list may not contain every connected device. Hostnames, hardware addresses, vendors, and response times are shown only when macOS and the responding device make them available.
 
 ## Wi-Fi Vendor/OUI Data
 

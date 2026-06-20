@@ -43,9 +43,18 @@ public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var isWiFiScanRefreshing = false
     @Published public private(set) var wifiScanErrorDescription: String?
     @Published public private(set) var wifiScanRefreshToken = 0
+    @Published public private(set) var networkScanPhase: NetworkScanPhase = .idle
+    @Published public private(set) var networkScanDevices: [DiscoveredNetworkDevice] = []
+    @Published public private(set) var networkScanCompletedTargets = 0
+    @Published public private(set) var networkScanTotalTargets = 0
+    @Published public private(set) var lastNetworkScanAt: Date?
+    @Published public private(set) var networkScanWarning: String?
 
     private var timerCancellable: AnyCancellable?
     private var wifiScanTimerCancellable: AnyCancellable?
+    private var networkScanTask: Task<Void, Never>?
+    private var activeNetworkScanRequest: NetworkScanRequest?
+    private var networkScanID: UUID?
     private var previousSnapshot: InterfaceSnapshot?
     private let samplingInterval: TimeInterval
     private var consecutiveFailureCount = 0
@@ -78,6 +87,116 @@ public final class NetworkSpeedMonitor: ObservableObject {
     
     public func refreshInterfaces() {
         self.activeInterfaces = getNetworkInterfaces()
+        guard networkScanPhase == .scanning,
+              let request = activeNetworkScanRequest
+        else { return }
+
+        let stillConnected = activeInterfaces.contains {
+            $0.name == request.interfaceName && $0.family == "IPv4" && $0.address == request.localIPv4Address
+        }
+        if !stillConnected {
+            stopNetworkScan(for: .networkChanged)
+        }
+    }
+
+    public func startNetworkScan() {
+        guard networkScanPhase != .scanning else { return }
+
+        let request: NetworkScanRequest
+        do {
+            request = try ActiveNetworkScanResolver.resolve()
+        } catch let error as NetworkScanError {
+            networkScanPhase = .failed(error.localizedDescription)
+            networkScanWarning = nil
+            return
+        } catch {
+            networkScanPhase = .failed(error.localizedDescription)
+            networkScanWarning = nil
+            return
+        }
+
+        let scanID = UUID()
+        networkScanID = scanID
+        activeNetworkScanRequest = request
+        networkScanCompletedTargets = 0
+        networkScanTotalTargets = request.candidateHostAddresses.filter {
+            $0 != request.localIPv4Address
+        }.count
+        networkScanWarning = nil
+        var deviceStore = NetworkScanDeviceStore(devices: networkScanDevices)
+        deviceStore.markAllStale()
+        networkScanDevices = deviceStore.sortedDevices
+        networkScanPhase = .scanning
+
+        let stream = LocalNetworkScanner().scan(request: request)
+        networkScanTask = Task { [weak self] in
+            do {
+                for try await event in stream {
+                    guard let self, self.networkScanID == scanID else { return }
+                    self.handleNetworkScanEvent(event)
+                }
+            } catch is CancellationError {
+                guard let self, self.networkScanID == scanID else { return }
+                if self.networkScanPhase == .scanning {
+                    self.networkScanPhase = .cancelled
+                }
+                self.finishNetworkScanTask(scanID: scanID)
+            } catch {
+                guard let self, self.networkScanID == scanID else { return }
+                self.networkScanPhase = .failed(error.localizedDescription)
+                self.finishNetworkScanTask(scanID: scanID)
+            }
+        }
+    }
+
+    public func cancelNetworkScan() {
+        guard networkScanPhase == .scanning else { return }
+        networkScanPhase = .cancelled
+        networkScanTask?.cancel()
+    }
+
+    private func stopNetworkScan(for error: NetworkScanError) {
+        networkScanPhase = .failed(error.localizedDescription)
+        networkScanTask?.cancel()
+    }
+
+    private func handleNetworkScanEvent(_ event: NetworkScanEvent) {
+        switch event {
+        case .started(let totalTargets):
+            networkScanTotalTargets = totalTargets
+
+        case .device(let device):
+            mergeNetworkScanDevice(device)
+
+        case .progress(let completedTargets, _):
+            networkScanCompletedTargets = completedTargets
+
+        case .warning(let warning):
+            networkScanWarning = warning
+
+        case .completed(let completedAt):
+            networkScanCompletedTargets = networkScanTotalTargets
+            var deviceStore = NetworkScanDeviceStore(devices: networkScanDevices)
+            deviceStore.removeStaleDevices()
+            networkScanDevices = deviceStore.sortedDevices
+            lastNetworkScanAt = completedAt
+            networkScanPhase = .completed
+            if let scanID = networkScanID {
+                finishNetworkScanTask(scanID: scanID)
+            }
+        }
+    }
+
+    private func mergeNetworkScanDevice(_ update: DiscoveredNetworkDevice) {
+        var deviceStore = NetworkScanDeviceStore(devices: networkScanDevices)
+        deviceStore.merge(update)
+        networkScanDevices = deviceStore.sortedDevices
+    }
+
+    private func finishNetworkScanTask(scanID: UUID) {
+        guard networkScanID == scanID else { return }
+        networkScanTask = nil
+        activeNetworkScanRequest = nil
     }
 
     public func startWiFiScanning(refreshInterval: TimeInterval = 30) {

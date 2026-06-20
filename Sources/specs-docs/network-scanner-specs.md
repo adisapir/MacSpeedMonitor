@@ -7,7 +7,7 @@ Before making code changes:
 1. Read this entire specification.
 2. Inspect the existing `NetworkInfoView`, `NetworkSpeedMonitor`, network-interface discovery, OUI vendor lookup, sandbox entitlements, and tests.
 3. Produce an implementation plan that maps every acceptance criterion to code and verification.
-4. Keep the implementation scoped to local IPv4 device discovery in the existing Network Information tab.
+4. Keep the implementation scoped to local IPv4 device discovery in the existing Connected Network tab.
 
 During implementation:
 
@@ -34,11 +34,11 @@ Network Scanner v1
 
 ### Goal
 
-Add a manually initiated local-network device scanner to the existing **Network Information** tab. The scanner helps a user see which devices respond on the Mac's currently active private IPv4 subnet without inspecting traffic or probing device services.
+Add a manually initiated local-network device scanner to the existing **Connected Network** tab. The scanner helps a user see which devices respond on the Mac's currently active private IPv4 subnet without inspecting traffic or probing device services.
 
 ### Primary workflow
 
-1. The user opens **Network Information**.
+1. The user opens **Connected Network**.
 2. Existing network-interface cards remain at the top of the tab.
 3. A **Devices on Your Network** section appears below the interface cards.
 4. The section is initially idle and does not generate network traffic.
@@ -103,7 +103,7 @@ Add a manually initiated local-network device scanner to the existing **Network 
 - Use a per-host reachability timeout of 1 second and no more than one retry.
 - Check cancellation before scheduling a host, after each network wait, and before publishing an event.
 - Cancelling stops new probes promptly, preserves devices found during that scan, and transitions to the cancelled state.
-- A scan must not outlive the coordinator that owns it. Leaving Network Information may cancel active work, but completed results remain available while the app process remains alive.
+- A scan must not outlive the coordinator that owns it. Leaving Connected Network may cancel active work, but completed results remain available while the app process remains alive.
 - A new scan keeps the previous successful results visible and marks them stale. Rediscovered devices become current as events arrive. At completion, remove devices that remained stale.
 - A failed scan keeps the last successful result set visible and marked stale.
 
@@ -298,8 +298,8 @@ The stream must finish exactly once. It must not emit values after cancellation 
 
 ### Functional acceptance
 
-- [ ] Network Scanner is embedded below interface cards in Network Information.
-- [ ] Opening Network Information does not start a scan.
+- [ ] Network Scanner is embedded below interface cards in Connected Network.
+- [ ] Opening Connected Network does not start a scan.
 - [ ] **Scan Network** discovers devices only on the selected directly connected private IPv4 subnet.
 - [ ] Partial results and accurate progress appear while scanning.
 - [ ] The user can cancel and start a later scan without overlapping work.
@@ -321,7 +321,7 @@ The stream must finish exactly once. It must not emit values after cancellation 
 ### Performance acceptance
 
 - [ ] Scan concurrency never exceeds 32 host probes.
-- [ ] The Network Information UI remains responsive during a `/24` scan.
+- [ ] The Connected Network UI remains responsive during a `/24` scan.
 - [ ] Throughput monitoring and Wi-Fi scanning continue without material interruption.
 - [ ] Cancellation prevents new probes promptly and releases active work.
 - [ ] Completed and cancelled scans leave no running scanner task or timer.
@@ -341,7 +341,7 @@ The stream must finish exactly once. It must not emit values after cancellation 
 - [ ] Swift package tests pass.
 - [ ] The Xcode Debug build succeeds with code signing disabled.
 - [ ] `git diff --check` reports no whitespace errors.
-- [ ] Existing Home, Network Information, Wi-Fi Scan, About, Settings, monitoring, and widget behavior regressions are not introduced.
+- [ ] Existing Home, Connected Network, Wi-Fi Scan, About, Settings, monitoring, and widget behavior regressions are not introduced.
 
 ## 8. Test Plan
 
@@ -394,7 +394,7 @@ xcodebuild \
 Update the README with:
 
 - A concise Network Scanner feature description.
-- Its placement under Network Information.
+- Its placement under Connected Network.
 - Manual-scan behavior.
 - IPv4, private-subnet, and 256-address limits.
 - The fact that firewalls and network isolation may hide devices.

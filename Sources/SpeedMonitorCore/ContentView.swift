@@ -110,7 +110,7 @@ public struct ContentView: View {
     
     public enum Tab: String, CaseIterable, Identifiable {
         case home = "Home"
-        case networkInfo = "Network information"
+        case networkInfo = "Connected Network"
         case wifiScan = "Wi-Fi Scan"
         case about = "About"
         case settings = "Settings"
@@ -829,7 +829,7 @@ struct DashboardView: View {
     }()
 }
 
-// MARK: - Network Information View
+// MARK: - Connected Network View
 
 struct NetworkInfoView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
@@ -971,7 +971,144 @@ struct NetworkInfoView: View {
                     }
                     .padding(.horizontal)
                 }
+
+                networkScannerSection
+                    .padding(.top, 8)
             }
+        }
+        .onDisappear {
+            monitor.cancelNetworkScan()
+        }
+    }
+
+    private var networkScannerSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Divider()
+
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Devices on Your Network")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    Text("Discover devices responding on your current local network")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                InfoButton(
+                    title: "Local Network Scanner",
+                    introduction: "The scanner checks only your current private IPv4 network. It sends reachability requests but does not inspect browsing activity or network payloads.",
+                    items: [
+                        HelpItem(term: "Privacy", explanation: "Results stay on this Mac for the current app session. They are not saved, uploaded, or used for analytics."),
+                        HelpItem(term: "Visibility", explanation: "Firewalls, sleeping devices, guest-network isolation, and router settings can prevent devices from appearing."),
+                        HelpItem(term: "Optional details", explanation: "Hostname, hardware address, manufacturer, and response time appear only when macOS and the device make them available."),
+                        HelpItem(term: "Scan range", explanation: "Only the directly connected private IPv4 network is checked, with a maximum of 256 addresses. No service ports are scanned."),
+                    ]
+                )
+
+                networkScanActionButton
+            }
+
+            if monitor.networkScanPhase == .scanning {
+                VStack(alignment: .leading, spacing: 6) {
+                    ProgressView(
+                        value: Double(monitor.networkScanCompletedTargets),
+                        total: Double(max(monitor.networkScanTotalTargets, 1))
+                    )
+                    .accessibilityLabel("Network scan progress")
+                    .accessibilityValue(networkScanProgressText)
+
+                    Text(networkScanProgressText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text(networkScanStatusText)
+                    .font(.subheadline)
+                    .foregroundStyle(networkScanStatusColor)
+            }
+
+            if let warning = monitor.networkScanWarning {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+            }
+
+            if monitor.networkScanDevices.isEmpty {
+                if monitor.networkScanPhase != .idle && monitor.networkScanPhase != .scanning {
+                    Text("No responding devices were found.")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 24)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(monitor.networkScanDevices) { device in
+                        NetworkDeviceRow(device: device, copyAction: copyToClipboard)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 20)
+    }
+
+    @ViewBuilder
+    private var networkScanActionButton: some View {
+        if monitor.networkScanPhase == .scanning {
+            Button(role: .cancel) {
+                monitor.cancelNetworkScan()
+            } label: {
+                Label("Cancel Scan", systemImage: "xmark.circle")
+            }
+            .buttonStyle(.bordered)
+            .keyboardShortcut(.cancelAction)
+        } else {
+            Button {
+                monitor.startNetworkScan()
+            } label: {
+                Label(networkScanButtonTitle, systemImage: "dot.radiowaves.left.and.right")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private var networkScanButtonTitle: String {
+        switch monitor.networkScanPhase {
+        case .idle: return "Scan Network"
+        case .scanning: return "Cancel Scan"
+        case .completed, .cancelled, .failed: return "Scan Again"
+        }
+    }
+
+    private var networkScanProgressText: String {
+        let count = monitor.networkScanDevices.count
+        return "Scanning \(monitor.networkScanCompletedTargets) of \(monitor.networkScanTotalTargets) addresses - \(count) \(count == 1 ? "device" : "devices") found"
+    }
+
+    private var networkScanStatusText: String {
+        switch monitor.networkScanPhase {
+        case .idle:
+            return "Run a scan when you want to check which devices respond on this network."
+        case .scanning:
+            return networkScanProgressText
+        case .completed:
+            let count = monitor.networkScanDevices.count
+            let updated = monitor.lastNetworkScanAt?.formatted(date: .omitted, time: .standard) ?? "just now"
+            return "\(count) \(count == 1 ? "device" : "devices") found - Updated \(updated)"
+        case .cancelled:
+            return "Scan cancelled. Partial results are shown."
+        case .failed(let message):
+            return message
+        }
+    }
+
+    private var networkScanStatusColor: Color {
+        switch monitor.networkScanPhase {
+        case .failed: return .orange
+        default: return .secondary
         }
     }
 
@@ -979,6 +1116,114 @@ struct NetworkInfoView: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(value, forType: .string)
+    }
+}
+
+private struct NetworkDeviceRow: View {
+    let device: DiscoveredNetworkDevice
+    let copyAction: (String) -> Void
+
+    var body: some View {
+        GlassCard(glowColor: device.isRouter ? .purple : (device.isLocalDevice ? .blue : .cyan)) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: device.isRouter ? "wifi.router.fill" : (device.isLocalDevice ? "desktopcomputer" : "network"))
+                    .font(.title2)
+                    .foregroundStyle(device.isStale ? Color.secondary : Color.blue)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Text(device.displayName)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .help(device.displayName)
+
+                        if device.isRouter {
+                            badge("Router", color: .purple)
+                        }
+                        if device.isLocalDevice {
+                            badge("This Mac", color: .blue)
+                        }
+                        if device.isStale {
+                            badge("Previous Scan", color: .gray)
+                        }
+                    }
+
+                    Text(device.ipv4Address)
+                        .font(.system(.subheadline, design: .monospaced))
+
+                    HStack(spacing: 14) {
+                        if let macAddress = device.macAddress {
+                            detail("MAC", value: macAddress)
+                        }
+                        if let responseTime = device.responseTimeMilliseconds {
+                            detail("Response", value: String(format: "%.1f ms", responseTime))
+                        }
+                    }
+
+                    if let vendorName = device.vendorName {
+                        detail("Vendor", value: vendorName)
+                            .lineLimit(1)
+                            .help(vendorName)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .opacity(device.isStale ? 0.65 : 1)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityDescription)
+        }
+        .contextMenu {
+            Button("Copy IP Address") { copyAction(device.ipv4Address) }
+            if let macAddress = device.macAddress {
+                Button("Copy MAC Address") { copyAction(macAddress) }
+            }
+            Button("Copy All Details") { copyAction(allDetails) }
+        }
+    }
+
+    private func badge(_ title: String, color: Color) -> some View {
+        Text(title)
+            .font(.caption2)
+            .fontWeight(.bold)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.15))
+            .foregroundStyle(color)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    private func detail(_ label: String, value: String) -> some View {
+        HStack(spacing: 4) {
+            Text("\(label):")
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.caption, design: label == "MAC" ? .monospaced : .default))
+        }
+        .font(.caption)
+    }
+
+    private var allDetails: String {
+        var values = [device.displayName, "IP: \(device.ipv4Address)"]
+        if let macAddress = device.macAddress { values.append("MAC: \(macAddress)") }
+        if let vendorName = device.vendorName { values.append("Vendor: \(vendorName)") }
+        if let responseTime = device.responseTimeMilliseconds {
+            values.append(String(format: "Response: %.1f ms", responseTime))
+        }
+        return values.joined(separator: "\n")
+    }
+
+    private var accessibilityDescription: String {
+        var values = [device.displayName, "IP address \(device.ipv4Address)"]
+        if device.isRouter { values.append("Router") }
+        if device.isLocalDevice { values.append("This Mac") }
+        if device.isStale { values.append("From previous scan") }
+        if let vendorName = device.vendorName { values.append("Vendor \(vendorName)") }
+        if let responseTime = device.responseTimeMilliseconds {
+            values.append(String(format: "Response time %.1f milliseconds", responseTime))
+        }
+        return values.joined(separator: ", ")
     }
 }
 
