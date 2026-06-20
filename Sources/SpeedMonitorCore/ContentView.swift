@@ -1120,10 +1120,24 @@ struct NetworkInfoView: View {
             Button {
                 requestAIRecognition(for: nil)
             } label: {
-                Label(
-                    "AI Scan (\(monitor.unknownDevicesForAIRecognition.count))",
-                    systemImage: "sparkles"
-                )
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 22, height: 22)
+                        .background {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.purple, .pink, .orange],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        }
+
+                    Text("AI Scan (\(monitor.unknownDevicesForAIRecognition.count))")
+                }
             }
             .buttonStyle(.bordered)
             .disabled(
