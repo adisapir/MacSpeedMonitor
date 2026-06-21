@@ -155,13 +155,14 @@ struct GeminiRecognitionProvider: AIRecognitionProviding, Sendable {
 
     private func validate(_ response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else { throw AIRecognitionError.invalidResponse }
+        let message = (try? JSONDecoder().decode(GeminiErrorEnvelope.self, from: data))?.error.message ?? ""
         switch http.statusCode {
         case 200..<300: return
-        case 400, 401, 403: throw AIRecognitionError.invalidAPIKey
+        case 400: throw AIRecognitionError.server(message)
+        case 401, 403: throw AIRecognitionError.invalidAPIKey
         case 404: throw AIRecognitionError.modelUnavailable
         case 429: throw AIRecognitionError.rateLimited
         default:
-            let message = (try? JSONDecoder().decode(GeminiErrorEnvelope.self, from: data))?.error.message ?? ""
             throw AIRecognitionError.server(message)
         }
     }
@@ -172,9 +173,28 @@ struct GeminiRecognitionProvider: AIRecognitionProviding, Sendable {
             "contents": [["role": "user", "parts": [["text": inputJSON]]]],
             "generationConfig": [
                 "responseMimeType": "application/json",
-                "responseSchema": AIRecognitionPrompt.responseSchema,
+                "responseSchema": GeminiSchemaAdapter.adapt(AIRecognitionPrompt.responseSchema),
             ],
         ]
+    }
+}
+
+enum GeminiSchemaAdapter {
+    static func adapt(_ schema: [String: Any]) -> [String: Any] {
+        removingUnsupportedFields(from: schema) as? [String: Any] ?? schema
+    }
+
+    private static func removingUnsupportedFields(from value: Any) -> Any {
+        if let dictionary = value as? [String: Any] {
+            return dictionary.reduce(into: [String: Any]()) { result, entry in
+                guard entry.key != "additionalProperties" else { return }
+                result[entry.key] = removingUnsupportedFields(from: entry.value)
+            }
+        }
+        if let array = value as? [Any] {
+            return array.map(removingUnsupportedFields)
+        }
+        return value
     }
 }
 

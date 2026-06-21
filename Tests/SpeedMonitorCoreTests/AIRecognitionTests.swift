@@ -70,6 +70,7 @@ final class AIRecognitionTests: XCTestCase {
             XCTAssertTrue(text.contains("Example Vendor"))
             XCTAssertTrue(text.contains("Classify local network devices"))
             XCTAssertTrue(text.contains("responseSchema"))
+            XCTAssertFalse(text.contains("additionalProperties"))
             return Self.geminiResponse(
                 status: 200,
                 body: """
@@ -84,6 +85,32 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(result.count, 1)
         XCTAssertEqual(result[0].category, "Audio")
         XCTAssertEqual(result[0].method, .googleGemini)
+    }
+
+    func testGeminiMalformedRequestPreservesProviderErrorInsteadOfReportingInvalidKey() async throws {
+        let provider = GeminiRecognitionProvider(
+            session: makeSession(),
+            keyStore: MemoryAPIKeyStore(key: "valid-key")
+        )
+        let device = try XCTUnwrap(DiscoveredNetworkDevice(ipv4Address: "10.0.0.2"))
+
+        TestURLProtocol.handler = { _ in
+            Self.geminiResponse(
+                status: 400,
+                body: """
+                {"error":{"code":400,"message":"Malformed response schema","status":"INVALID_ARGUMENT"}}
+                """
+            )
+        }
+
+        do {
+            _ = try await provider.recognize([
+                AIRecognitionInput(itemID: "item-1", device: device),
+            ])
+            XCTFail("Expected malformed request to fail")
+        } catch let error as AIRecognitionError {
+            XCTAssertEqual(error, .server("Malformed response schema"))
+        }
     }
 
     func testHTTPFailuresMapToActionableErrors() async throws {
