@@ -56,10 +56,7 @@ struct AppleFoundationModelsRecognitionProvider: AIRecognitionProviding {
         results.reserveCapacity(inputs.count)
         for input in inputs {
             try Task.checkCancellation()
-            let session = LanguageModelSession(instructions: """
-                Classify a local network device only from the supplied redacted metadata.
-                Analyze this network scan to determine exactly what device it is, and provide your best guess along with a confidence level.
-                """)
+            let session = LanguageModelSession(instructions: AIRecognitionPrompt.instructions)
             let data = try JSONEncoder().encode(input)
             let prompt = "Device metadata: \(String(decoding: data, as: UTF8.self))"
             let response = try await session.respond(

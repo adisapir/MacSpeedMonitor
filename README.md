@@ -95,19 +95,20 @@ For each responding device, the scanner attempts standard reverse DNS followed b
 
 ### AI Device Recognition (Optional)
 
-The Connected Network scanner can use Apple Intelligence on-device or OpenAI for cautious category suggestions for entries shown as **Unknown Device**. Choose a method under **Settings > AI Device Recognition**, then use **AI Scan** for all unknown devices or right-click one device and choose **Recognize Device through AI**.
+The Connected Network scanner can use Apple Intelligence on-device, OpenAI, or Google Gemini for cautious category suggestions for entries shown as **Unknown Device**. Choose a method under **Settings > AI Device Recognition**, then use **AI Scan** for all unknown devices or right-click one device and choose **Recognize Device through AI**.
 
 - **Apple On-Device** requires macOS 26, a compatible Apple Intelligence Mac, Apple Intelligence enabled, and its model ready. Recognition runs locally, works offline, and requires no API key.
 - **OpenAI API** uses `gpt-5.4-mini` through OpenAI's Responses API and requires the user's own API key. Requests are billed to that OpenAI account.
+- **Google Gemini** uses `gemini-3.5-flash` through Google's `generateContent` API and requires the user's own Gemini API key.
 - The selected method is remembered. Before an explicit choice, the app prefers Apple On-Device when it is available; it never silently falls back between methods.
 
 - The key is stored in macOS Keychain and is never included in source code, preferences, or logs.
 - Only a temporary item ID, discovered hostname, vendor name, Router / This Mac flags, and response time are sent. Private IP addresses and MAC addresses are never sent.
-- OpenAI requests contain at most 25 devices per batch. Apple On-Device processes one device at a time. Neither method automatically retries or uses web search or tools.
+- OpenAI and Gemini requests contain at most 25 devices per batch. Apple On-Device processes one device at a time. No method automatically retries or uses web search or tools.
 - Results are labeled as unverified AI suggestions, are stored locally by MAC address for reuse in later scans, and never replace scanner facts.
 - Vendor and timing metadata may be insufficient to recognize a device. A low-confidence or unavailable result is expected rather than a definitive identity.
 
-API keys stored in a local desktop application do not have server-grade isolation. Use a dedicated OpenAI project key with appropriate usage limits, and remove it from Settings when it is no longer needed.
+API keys stored in a local desktop application do not have server-grade isolation. Use dedicated provider project keys with appropriate usage limits, and remove them from Settings when no longer needed.
 
 The device-history file is versioned JSON written atomically with owner-only file permissions. Devices without a MAC address are not persisted because they cannot be matched reliably across scans.
 

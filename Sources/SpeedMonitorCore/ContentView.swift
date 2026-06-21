@@ -834,8 +834,10 @@ struct DashboardView: View {
 struct NetworkInfoView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
     @AppStorage("aiRecognitionPrivacyAccepted") private var aiPrivacyAccepted = false
+    @AppStorage("geminiRecognitionPrivacyAccepted") private var geminiPrivacyAccepted = false
     @State private var showingAIPrivacyDisclosure = false
     @State private var pendingAIIdentity: String?
+    @State private var pendingExternalAIMethod: AIRecognitionMethod?
     
     var body: some View {
         ScrollView {
@@ -1086,16 +1088,18 @@ struct NetworkInfoView: View {
         }
         .padding(.horizontal)
         .padding(.bottom, 20)
-        .alert("Use OpenAI Device Recognition?", isPresented: $showingAIPrivacyDisclosure) {
+        .alert("Use \(privacyDisclosureProviderName) Device Recognition?", isPresented: $showingAIPrivacyDisclosure) {
             Button("Cancel", role: .cancel) {
                 pendingAIIdentity = nil
+                pendingExternalAIMethod = nil
             }
             Button("Continue") {
-                aiPrivacyAccepted = true
+                if pendingExternalAIMethod == .openAI { aiPrivacyAccepted = true }
+                if pendingExternalAIMethod == .googleGemini { geminiPrivacyAccepted = true }
                 performPendingAIRecognition()
             }
         } message: {
-            Text("Redacted device metadata—discovered hostname, vendor, role flags, and response time—will be sent to OpenAI using your API key. IP addresses and MAC addresses are never sent. AI suggestions may be inaccurate and are saved locally by MAC address for later scans.")
+            Text("Redacted device metadata—discovered hostname, vendor, role flags, and response time—will be sent to \(privacyDisclosureProviderName) using your API key. IP addresses and MAC addresses are never sent. AI suggestions may be inaccurate and are saved locally by MAC address for later scans.")
         }
     }
 
@@ -1166,9 +1170,14 @@ struct NetworkInfoView: View {
             return
         }
         pendingAIIdentity = device?.aiIdentity
-        if monitor.selectedAIRecognitionMethod == .appleOnDevice || aiPrivacyAccepted {
+        let method = monitor.selectedAIRecognitionMethod
+        let privacyAccepted = method == .appleOnDevice
+            || (method == .openAI && aiPrivacyAccepted)
+            || (method == .googleGemini && geminiPrivacyAccepted)
+        if privacyAccepted {
             performPendingAIRecognition()
         } else {
+            pendingExternalAIMethod = method
             showingAIPrivacyDisclosure = true
         }
     }
@@ -1181,6 +1190,15 @@ struct NetworkInfoView: View {
             monitor.startAIRecognitionForUnknownDevices()
         }
         pendingAIIdentity = nil
+        pendingExternalAIMethod = nil
+    }
+
+    private var privacyDisclosureProviderName: String {
+        switch pendingExternalAIMethod ?? monitor.selectedAIRecognitionMethod {
+        case .googleGemini: return "Google Gemini"
+        case .openAI: return "OpenAI"
+        case .appleOnDevice: return "Apple On-Device"
+        }
     }
 
     @ViewBuilder
@@ -1451,6 +1469,7 @@ private extension AIRecognitionMethod {
         switch self {
         case .appleOnDevice: return "On-Device AI Insight"
         case .openAI: return "OpenAI Insight"
+        case .googleGemini: return "Gemini Insight"
         }
     }
 }
@@ -2128,6 +2147,10 @@ struct SettingsView: View {
     @State private var openAIStatusMessage: String?
     @State private var openAIStatusIsError = false
     @State private var isTestingOpenAI = false
+    @State private var geminiKeyInput = ""
+    @State private var geminiStatusMessage: String?
+    @State private var geminiStatusIsError = false
+    @State private var isTestingGemini = false
     @State private var showingClearHistoryConfirmation = false
     
     var body: some View {
@@ -2224,11 +2247,12 @@ struct SettingsView: View {
 
                                 InfoButton(
                                     title: "Using AI Device Recognition",
-                                    introduction: "Choose private on-device recognition through Apple Intelligence or use OpenAI with your own API key.",
+                                    introduction: "Choose private on-device recognition or use OpenAI or Google Gemini with your own API key.",
                                     items: [
                                         HelpItem(term: "Apple On-Device", explanation: "Runs privately and offline on this Mac with no API key. It requires macOS 26, a compatible Mac, Apple Intelligence enabled, and its model ready."),
                                         HelpItem(term: "OpenAI API", explanation: "Sends redacted metadata directly to OpenAI using your own API key. API usage may be billed separately from a ChatGPT subscription."),
-                                        HelpItem(term: "Limited device data", explanation: "Recognition uses hostname, vendor, role flags, and response time. IP and MAC addresses are never sent to OpenAI or included in an on-device prompt."),
+                                        HelpItem(term: "Google Gemini", explanation: "Sends the same redacted metadata directly to Google using your own Gemini API key. Usage is managed by your Google AI project."),
+                                        HelpItem(term: "Limited device data", explanation: "Recognition uses hostname, vendor, role flags, and response time. IP and MAC addresses are never sent to an external provider or included in an on-device prompt."),
                                         HelpItem(term: "Saved results", explanation: "Suggestions are unverified and stored locally by MAC address so later scans can restore them."),
                                     ]
                                 )
@@ -2269,7 +2293,7 @@ struct SettingsView: View {
                                 Text("No API key or internet connection is required.")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
-                            } else {
+                            } else if monitor.selectedAIRecognitionMethod == .openAI {
                                 Text("Use your own OpenAI API key for cautious device suggestions. The key is stored in macOS Keychain.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -2317,6 +2341,55 @@ struct SettingsView: View {
                                     Text(openAIStatusMessage)
                                         .font(.caption)
                                         .foregroundStyle(openAIStatusIsError ? .orange : .green)
+                                }
+                            } else {
+                                Text("Use your own Google Gemini API key for cautious device suggestions. The key is stored in macOS Keychain.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                Link(destination: URL(string: "https://aistudio.google.com/app/apikey")!) {
+                                    Label("Create a Gemini API Key", systemImage: "arrow.up.right.square")
+                                }
+                                .font(.subheadline)
+
+                                SecureField(
+                                    monitor.hasGeminiAPIKey ? "Enter a replacement key" : "Gemini API key",
+                                    text: $geminiKeyInput
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .privacySensitive()
+
+                                HStack {
+                                    Button(monitor.hasGeminiAPIKey ? "Replace Key" : "Save Key") {
+                                        saveGeminiKey()
+                                    }
+                                    .disabled(geminiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                                    Button("Test Connection") {
+                                        testGeminiConnection()
+                                    }
+                                    .disabled(!monitor.hasGeminiAPIKey || isTestingGemini)
+
+                                    if monitor.hasGeminiAPIKey {
+                                        Button("Remove Key", role: .destructive) {
+                                            removeGeminiKey()
+                                        }
+                                    }
+
+                                    if isTestingGemini { ProgressView().controlSize(.small) }
+                                }
+
+                                Label(
+                                    monitor.hasGeminiAPIKey ? "API key stored in Keychain" : "No API key configured",
+                                    systemImage: monitor.hasGeminiAPIKey ? "checkmark.shield.fill" : "key"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(monitor.hasGeminiAPIKey ? .green : .secondary)
+
+                                if let geminiStatusMessage {
+                                    Text(geminiStatusMessage)
+                                        .font(.caption)
+                                        .foregroundStyle(geminiStatusIsError ? .orange : .green)
                                 }
                             }
                         }
@@ -2406,6 +2479,48 @@ struct SettingsView: View {
                 openAIStatusIsError = true
             }
             isTestingOpenAI = false
+        }
+    }
+
+    private func saveGeminiKey() {
+        do {
+            try GeminiAPIKeyStore.shared.saveKey(geminiKeyInput)
+            geminiKeyInput = ""
+            geminiStatusMessage = "API key saved securely."
+            geminiStatusIsError = false
+            monitor.refreshAIRecognitionAvailability()
+        } catch {
+            geminiStatusMessage = error.localizedDescription
+            geminiStatusIsError = true
+        }
+    }
+
+    private func removeGeminiKey() {
+        do {
+            try GeminiAPIKeyStore.shared.removeKey()
+            geminiKeyInput = ""
+            geminiStatusMessage = "API key removed."
+            geminiStatusIsError = false
+            monitor.refreshAIRecognitionAvailability()
+        } catch {
+            geminiStatusMessage = error.localizedDescription
+            geminiStatusIsError = true
+        }
+    }
+
+    private func testGeminiConnection() {
+        isTestingGemini = true
+        geminiStatusMessage = nil
+        Task {
+            do {
+                try await GeminiRecognitionProvider().testConnection()
+                geminiStatusMessage = "Connected to Google Gemini and confirmed \(GeminiRecognitionProvider.model) access."
+                geminiStatusIsError = false
+            } catch {
+                geminiStatusMessage = error.localizedDescription
+                geminiStatusIsError = true
+            }
+            isTestingGemini = false
         }
     }
 }

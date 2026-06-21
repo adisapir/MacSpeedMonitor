@@ -55,6 +55,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var aiRecognitionTotalCount = 0
     @Published public private(set) var aiRecognitionErrorDescription: String?
     @Published public private(set) var hasOpenAIAPIKey = false
+    @Published public private(set) var hasGeminiAPIKey = false
     @Published public private(set) var selectedAIRecognitionMethod: AIRecognitionMethod = .openAI
     @Published public private(set) var selectedAIRecognitionAvailability: AIRecognitionAvailability = .unavailable("AI recognition is unavailable.")
     @Published public private(set) var deviceHistoryRecordCount = 0
@@ -102,6 +103,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
         self.aiRecognitionPreferences = aiRecognitionPreferences
         self.deviceHistoryStore = deviceHistoryStore
         self.hasOpenAIAPIKey = providers[.openAI]?.availability.isAvailable == true
+        self.hasGeminiAPIKey = providers[.googleGemini]?.availability.isAvailable == true
         let initialMethod = AIRecognitionMethodSelection.initialMethod(
             storedRawValue: aiRecognitionPreferences.string(forKey: Self.aiRecognitionMethodPreferenceKey),
             appleAvailability: providers[.appleOnDevice]?.availability
@@ -272,6 +274,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
     public func refreshAIRecognitionAvailability() {
         hasOpenAIAPIKey = aiRecognitionProviders[.openAI]?.availability.isAvailable == true
+        hasGeminiAPIKey = aiRecognitionProviders[.googleGemini]?.availability.isAvailable == true
         if aiRecognitionPreferences.object(forKey: Self.aiRecognitionMethodPreferenceKey) == nil {
             selectedAIRecognitionMethod = aiRecognitionProviders[.appleOnDevice]?.availability.isAvailable == true
                 ? .appleOnDevice
@@ -291,7 +294,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
     public func setAIRecognitionMethod(_ method: AIRecognitionMethod) {
         guard !isAIRecognitionRunning,
-              method == .openAI || availability(for: method).isAvailable
+              method != .appleOnDevice || availability(for: method).isAvailable
         else { return }
         selectedAIRecognitionMethod = method
         selectedAIRecognitionAvailability = availability(for: method)

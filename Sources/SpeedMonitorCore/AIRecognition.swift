@@ -4,6 +4,7 @@ import Security
 public enum AIRecognitionMethod: String, Codable, Sendable, CaseIterable, Identifiable {
     case appleOnDevice
     case openAI
+    case googleGemini
 
     public var id: String { rawValue }
 
@@ -11,7 +12,46 @@ public enum AIRecognitionMethod: String, Codable, Sendable, CaseIterable, Identi
         switch self {
         case .appleOnDevice: return "Apple On-Device"
         case .openAI: return "OpenAI API"
+        case .googleGemini: return "Google Gemini"
         }
+    }
+}
+
+enum AIRecognitionPrompt {
+    static let instructions = """
+        Classify local network devices only from the supplied redacted metadata,
+        including a discovered hostname when available.
+        Analyze this network scan to determine exactly what device it is, and provide your best guess along with a confidence level.
+        """
+
+    static var responseSchema: [String: Any] {
+        [
+            "type": "object",
+            "additionalProperties": false,
+            "properties": [
+                "recognitions": [
+                    "type": "array",
+                    "items": [
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": [
+                            "itemID": ["type": "string"],
+                            "suggestedName": ["type": "string"],
+                            "category": ["type": "string"],
+                            "likelyPurpose": ["type": "string"],
+                            "confidence": ["type": "string", "enum": ["low", "medium", "high"]],
+                            "rationale": ["type": "string"],
+                            "limitations": ["type": "string"],
+                        ],
+                        "required": [
+                            "itemID", "suggestedName", "category", "likelyPurpose",
+                            "confidence", "rationale", "limitations",
+                        ],
+                    ],
+                ],
+            ],
+            "required": ["recognitions"],
+        ]
     }
 }
 
@@ -201,21 +241,21 @@ enum AIRecognitionError: LocalizedError, Sendable, Equatable {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            return "Add your OpenAI API key in Settings before using AI recognition."
+            return "Add an API key in Settings before using this AI method."
         case .invalidAPIKey:
-            return "OpenAI rejected this API key. Replace it in Settings and try again."
+            return "The AI provider rejected this API key. Replace it in Settings and try again."
         case .modelUnavailable:
-            return "The configured OpenAI account cannot access gpt-5.4-mini."
+            return "The configured account cannot access the selected AI model."
         case .rateLimited:
-            return "OpenAI rate-limited the request. Wait before trying again."
+            return "The AI provider rate-limited the request. Wait before trying again."
         case .refused(let reason):
-            return reason.isEmpty ? "OpenAI declined to process this request." : reason
+            return reason.isEmpty ? "The AI provider declined to process this request." : reason
         case .invalidResponse:
             return "The AI method returned an unexpected response. No device details were changed."
         case .unavailable(let reason):
             return reason
         case .server(let message):
-            return message.isEmpty ? "OpenAI could not complete the request." : message
+            return message.isEmpty ? "The AI provider could not complete the request." : message
         }
     }
 }
@@ -415,11 +455,7 @@ struct OpenAIRecognitionProvider: AIRecognitionProviding, Sendable {
             "input": [
                 [
                     "role": "developer",
-                    "content": """
-                    Classify local network devices only from the supplied redacted metadata,
-                    including a discovered hostname when available.
-                    Analyze this network scan to determine exactly what device it is, and provide your best guess along with a confidence level.
-                    """,
+                    "content": AIRecognitionPrompt.instructions,
                 ],
                 ["role": "user", "content": inputJSON],
             ],
@@ -428,41 +464,12 @@ struct OpenAIRecognitionProvider: AIRecognitionProviding, Sendable {
                     "type": "json_schema",
                     "name": "device_recognitions",
                     "strict": true,
-                    "schema": responseSchema,
+                    "schema": AIRecognitionPrompt.responseSchema,
                 ],
             ],
         ]
     }
 
-    private var responseSchema: [String: Any] {
-        [
-            "type": "object",
-            "additionalProperties": false,
-            "properties": [
-                "recognitions": [
-                    "type": "array",
-                    "items": [
-                        "type": "object",
-                        "additionalProperties": false,
-                        "properties": [
-                            "itemID": ["type": "string"],
-                            "suggestedName": ["type": "string"],
-                            "category": ["type": "string"],
-                            "likelyPurpose": ["type": "string"],
-                            "confidence": ["type": "string", "enum": ["low", "medium", "high"]],
-                            "rationale": ["type": "string"],
-                            "limitations": ["type": "string"],
-                        ],
-                        "required": [
-                            "itemID", "suggestedName", "category", "likelyPurpose",
-                            "confidence", "rationale", "limitations",
-                        ],
-                    ],
-                ],
-            ],
-            "required": ["recognitions"],
-        ]
-    }
 }
 
 struct UnavailableAIRecognitionProvider: AIRecognitionProviding {
@@ -481,6 +488,7 @@ enum AIRecognitionProviderFactory {
     static func providers() -> [AIRecognitionMethod: any AIRecognitionProviding] {
         var providers: [AIRecognitionMethod: any AIRecognitionProviding] = [
             .openAI: OpenAIRecognitionProvider(),
+            .googleGemini: GeminiRecognitionProvider(),
         ]
         if #available(macOS 26.0, *) {
             providers[.appleOnDevice] = AppleFoundationModelsRecognitionProvider()
@@ -494,7 +502,7 @@ enum AIRecognitionProviderFactory {
     }
 }
 
-private struct RecognitionEnvelope: Decodable {
+struct RecognitionEnvelope: Decodable {
     let recognitions: [DeviceAIRecognition]
 }
 

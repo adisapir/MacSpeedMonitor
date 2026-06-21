@@ -46,6 +46,46 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(result[0].category, "IoT")
     }
 
+    func testGeminiRequestIsRedactedUsesSharedPromptAndDecodesStructuredResponse() async throws {
+        let provider = GeminiRecognitionProvider(
+            session: makeSession(),
+            keyStore: MemoryAPIKeyStore(key: "gemini-test-key")
+        )
+        let device = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.50.44",
+            hostname: "living-room-speaker.local",
+            macAddress: "AA:BB:CC:DD:EE:FF",
+            vendorName: "Example Vendor",
+            responseTimeMilliseconds: 3.27
+        ))
+
+        TestURLProtocol.handler = { request in
+            XCTAssertEqual(request.url, GeminiRecognitionProvider.generateContentURL)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "x-goog-api-key"), "gemini-test-key")
+            let body = try XCTUnwrap(Self.bodyData(from: request))
+            let text = String(decoding: body, as: UTF8.self)
+            XCTAssertFalse(text.contains("192.168.50.44"))
+            XCTAssertFalse(text.contains("AA:BB:CC:DD:EE:FF"))
+            XCTAssertTrue(text.contains("living-room-speaker.local"))
+            XCTAssertTrue(text.contains("Example Vendor"))
+            XCTAssertTrue(text.contains("Classify local network devices"))
+            XCTAssertTrue(text.contains("responseSchema"))
+            return Self.geminiResponse(
+                status: 200,
+                body: """
+                {"candidates":[{"content":{"parts":[{"text":"{\\"recognitions\\":[{\\"itemID\\":\\"item-1\\",\\"suggestedName\\":\\"Likely smart speaker\\",\\"category\\":\\"Audio\\",\\"likelyPurpose\\":\\"Playing media\\",\\"confidence\\":\\"medium\\",\\"rationale\\":\\"Hostname evidence\\",\\"limitations\\":\\"Exact model unknown\\"}]}"}]},"finishReason":"STOP"}]}
+                """
+            )
+        }
+
+        let result = try await provider.recognize([
+            AIRecognitionInput(itemID: "item-1", device: device),
+        ])
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].category, "Audio")
+        XCTAssertEqual(result[0].method, .googleGemini)
+    }
+
     func testHTTPFailuresMapToActionableErrors() async throws {
         let provider = OpenAIRecognitionProvider(
             session: makeSession(),
@@ -137,6 +177,10 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(
             UnavailableAIRecognitionProvider(method: .appleOnDevice, reason: "Unavailable").maximumBatchSize,
             1
+        )
+        XCTAssertEqual(
+            GeminiRecognitionProvider(keyStore: MemoryAPIKeyStore(key: "test-key")).maximumBatchSize,
+            25
         )
     }
 
@@ -331,6 +375,16 @@ final class AIRecognitionTests: XCTestCase {
     private static func response(status: Int, body: String) -> (HTTPURLResponse, Data) {
         let response = HTTPURLResponse(
             url: OpenAIRecognitionProvider.responsesURL,
+            statusCode: status,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        return (response, Data(body.utf8))
+    }
+
+    private static func geminiResponse(status: Int, body: String) -> (HTTPURLResponse, Data) {
+        let response = HTTPURLResponse(
+            url: GeminiRecognitionProvider.generateContentURL,
             statusCode: status,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
