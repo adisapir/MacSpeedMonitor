@@ -7,22 +7,45 @@ import CoreWLAN
 import IOKit
 import IOKit.network
 import SystemConfiguration
+#if canImport(WidgetKit)
+import WidgetKit
+#endif
 
 @MainActor
 public final class NetworkSpeedMonitor: ObservableObject {
+    @MainActor
     private enum WidgetSnapshot {
         static let appGroup = "group.com.adisapir.MacSpeedMonitor"
         static let downloadKey = "widget.downloadBytesPerSecond"
         static let uploadKey = "widget.uploadBytesPerSecond"
         static let updatedAtKey = "widget.updatedAt"
         static let isRunningKey = "widget.isRunning"
+        static let widgetKind = "WiFiPulseWidget"
+        static let reloadInterval: TimeInterval = 60
+        static var lastReloadRequestAt: Date?
 
-        static func publish(download: Double, upload: Double, updatedAt: Date, isRunning: Bool) {
+        static func publish(
+            download: Double,
+            upload: Double,
+            updatedAt: Date,
+            isRunning: Bool,
+            forceReload: Bool = false
+        ) {
             guard let defaults = UserDefaults(suiteName: appGroup) else { return }
             defaults.set(download, forKey: downloadKey)
             defaults.set(upload, forKey: uploadKey)
             defaults.set(updatedAt.timeIntervalSince1970, forKey: updatedAtKey)
             defaults.set(isRunning, forKey: isRunningKey)
+
+            #if canImport(WidgetKit)
+            let elapsedSinceReload = lastReloadRequestAt.map { updatedAt.timeIntervalSince($0) }
+            let shouldReload = forceReload
+                || (elapsedSinceReload.map { $0 >= reloadInterval } ?? true)
+            if shouldReload {
+                lastReloadRequestAt = updatedAt
+                WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
+            }
+            #endif
         }
     }
 
@@ -539,7 +562,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
             download: downloadBytesPerSecond,
             upload: uploadBytesPerSecond,
             updatedAt: Date(),
-            isRunning: false
+            isRunning: false,
+            forceReload: true
         )
 
         if resetValues {

@@ -120,7 +120,7 @@ Run the distribution script from the repository root:
 Scripts/build-distribution.sh
 ```
 
-The script performs a clean Release archive through Xcode, copies and signs the archived app, creates a compressed DMG with an Applications shortcut, and writes SHA-256 checksums. Generated artifacts are placed in the ignored `dist/` directory.
+The script performs a clean Release archive through Xcode, copies and signs the archived app, creates a compressed DMG with an Applications shortcut, and writes a SHA-256 checksum. The standalone `.app` and the `.dmg` are placed in the ignored `dist/` directory.
 
 By default the app is ad-hoc signed, which does not require Apple Developer Program membership but may require users to choose **Privacy & Security > Open Anyway**. For Developer ID signing and optional notarization:
 

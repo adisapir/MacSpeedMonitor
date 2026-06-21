@@ -113,6 +113,11 @@ if [[ -n "$NOTARY_PROFILE" ]]; then
     xcrun stapler validate "$DMG_PATH"
 fi
 
+DIST_APP="$DIST_DIR/$APP_NAME.app"
+ditto --noextattr "$SIGNED_APP" "$DIST_APP"
+xattr -cr "$DIST_APP"
+codesign --verify --deep --strict --verbose=2 "$DIST_APP"
+
 (
     cd "$DIST_DIR"
     shasum -a 256 "$DMG_NAME" > SHA256SUMS.txt
@@ -120,6 +125,7 @@ fi
 
 echo
 echo "Distribution artifacts created:"
+echo "  App: $DIST_APP"
 echo "  DMG: $DMG_PATH"
 echo "  SHA: $DIST_DIR/SHA256SUMS.txt"
 if [[ "$SIGN_IDENTITY" == "-" ]]; then

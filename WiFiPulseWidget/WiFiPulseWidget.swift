@@ -36,8 +36,24 @@ struct Provider: AppIntentTimelineProvider {
 
     func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<SpeedEntry> {
         let now = Date()
-        return Timeline(entries: [entry(configuration: configuration, date: now)],
-                        policy: .after(now.addingTimeInterval(60)))
+        let current = entry(configuration: configuration, date: now)
+        var entries = [current]
+
+        if current.isRunning, let updatedAt = current.updatedAt {
+            let staleDate = updatedAt.addingTimeInterval(120)
+            if staleDate > now {
+                entries.append(SpeedEntry(
+                    date: staleDate,
+                    configuration: configuration,
+                    downloadBytesPerSecond: current.downloadBytesPerSecond,
+                    uploadBytesPerSecond: current.uploadBytesPerSecond,
+                    updatedAt: updatedAt,
+                    isRunning: current.isRunning
+                ))
+            }
+        }
+
+        return Timeline(entries: entries, policy: .after(now.addingTimeInterval(5 * 60)))
     }
 
     private func entry(configuration: ConfigurationAppIntent, date: Date = .now) -> SpeedEntry {
