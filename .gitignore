@@ -7,6 +7,9 @@ WiFiPulse/WiFiPulseApp.swift
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 
+# Distribution artifacts
+dist/
+
 # Secrets and signing materials
 .env
 .env.*

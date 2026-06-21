@@ -112,6 +112,26 @@ API keys stored in a local desktop application do not have server-grade isolatio
 
 The device-history file is versioned JSON written atomically with owner-only file permissions. Devices without a MAC address are not persisted because they cannot be matched reliably across scans.
 
+## Build a Distribution DMG
+
+Run the distribution script from the repository root:
+
+```bash
+Scripts/build-distribution.sh
+```
+
+The script performs a clean Release archive through Xcode, copies and signs the archived app, creates a compressed DMG with an Applications shortcut, and writes SHA-256 checksums. Generated artifacts are placed in the ignored `dist/` directory.
+
+By default the app is ad-hoc signed, which does not require Apple Developer Program membership but may require users to choose **Privacy & Security > Open Anyway**. For Developer ID signing and optional notarization:
+
+```bash
+SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+NOTARY_PROFILE="notarytool-profile" \
+Scripts/build-distribution.sh
+```
+
+The notarization profile must already exist in the login Keychain through `xcrun notarytool store-credentials`.
+
 ## Wi-Fi Vendor/OUI Data
 
 Wi-Fi Scan resolves AP vendors by comparing each BSSID against the bundled `Sources/SpeedMonitorCore/Resources/oui-vendors.tsv` resource. That file is generated from Wireshark's public manufacturer database and preserves 24-bit, 28-bit, and 36-bit MAC blocks, then stores vendor names once and maps each prefix to a vendor index to keep the resource smaller than the raw source file.
