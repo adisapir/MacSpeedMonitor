@@ -329,6 +329,16 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertNil(try store.loadKey())
     }
 
+    func testExternalProviderAvailabilityDoesNotReadAPIKeys() {
+        let openAIStore = CountingAPIKeyStore(key: "openai-key")
+        let geminiStore = CountingAPIKeyStore(key: "gemini-key")
+
+        XCTAssertTrue(OpenAIRecognitionProvider(keyStore: openAIStore).availability.isAvailable)
+        XCTAssertTrue(GeminiRecognitionProvider(keyStore: geminiStore).availability.isAvailable)
+        XCTAssertEqual(openAIStore.readCount, 0)
+        XCTAssertEqual(geminiStore.readCount, 0)
+    }
+
     func testDeviceHistoryRoundTripsAndEnrichesByMACAddress() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MacSpeedMonitor-history-\(UUID().uuidString)")
@@ -442,6 +452,40 @@ private final class MemoryAPIKeyStore: APIKeyStoring, @unchecked Sendable {
     func loadKey() throws -> String? { key }
     func saveKey(_ key: String) throws { self.key = key }
     func removeKey() throws { key = nil }
+}
+
+private final class CountingAPIKeyStore: APIKeyStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var key: String?
+    private var reads = 0
+
+    init(key: String?) { self.key = key }
+
+    var readCount: Int {
+        lock.withLock { reads }
+    }
+
+    var hasKey: Bool {
+        lock.withLock {
+            reads += 1
+            return key?.isEmpty == false
+        }
+    }
+
+    func loadKey() throws -> String? {
+        lock.withLock {
+            reads += 1
+            return key
+        }
+    }
+
+    func saveKey(_ key: String) throws {
+        lock.withLock { self.key = key }
+    }
+
+    func removeKey() throws {
+        lock.withLock { key = nil }
+    }
 }
 
 private final class TestURLProtocol: URLProtocol, @unchecked Sendable {

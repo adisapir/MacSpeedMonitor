@@ -1,164 +1,69 @@
 # SimpleSpeedMonitor
 
-A lightweight SwiftUI network speed monitor for macOS.
-
-## Package Structure
-
-| Target | Type | Description |
-|---|---|---|
-| `SpeedMonitorCore` | Library | Reusable monitor + SwiftUI UI |
-| `MacSpeedMonitorApp` | Executable | macOS app entry point (`swift run`) |
-| `WiFiPulse.xcodeproj` / `MacSpeedMonitor` | Xcode app target | macOS app target for Xcode run, signing, capabilities, and packaging |
-
-**Platform requirements:** macOS 13+
-
-The app source of truth remains under `Sources/`. The Xcode project reuses the existing `MacSpeedMonitorApp` entry point and `SpeedMonitorCore` UI/monitor code. The `WiFiPulse/ContentView.swift` and `WiFiPulse/WiFiPulseApp.swift` files are only Xcode template files and are intentionally ignored; `WiFiPulse/Assets.xcassets` is kept for Xcode-managed app assets.
+SimpleSpeedMonitor is a native macOS app for viewing current network activity, nearby Wi-Fi networks, and devices on your local network.
 
 ## Features
 
-- **Live throughput** — download and upload speed, updated every second
-- **Throughput History Chart** — dual-graphed (download in blue, upload in green) area chart with configurable duration (30–300 s, default 60 s) and dynamic Y-axis unit scaling
-- **Left Navigation Sidebar** — vertical tabbed navigation with resizable width, hover effects, and collapsible layout (compact icon-only vs full list titles)
-- **macOS Menu Bar Commands** — Settings (Cmd+,) and About commands switch window views directly
-- **Modern User Interface** — glassmorphic "Liquid Glass" cards with glowing gradients, hover scaling, and dark/light/system theme support
-- **Network Interfaces** — active non-loopback adapters only, showing IP address, Wi-Fi link rate (via `CoreWLAN`), wired link speed (via `IOKit`), and friendly Wi-Fi generation label (Wi-Fi 5 through Wi-Fi 7); auto-refreshed via `NWPathMonitor` + manual Refresh button
-- **Local Network Scanner** — manually discover responding devices on the current private IPv4 subnet from the Connected Network tab, with incremental progress, cancellation, hostname and response-time details, and Router / This Mac identification
-- **Optional AI Device Recognition** — use your own OpenAI API key to request cautious, inline recognition suggestions for unknown scanner entries, individually or in redacted batches
-- **Wi-Fi Scan Radar** — nearby Wi-Fi networks shown as a radar map with signal-sized dots, 2.4/5/6 GHz band colors, connected-network highlighting, hover detail popovers, manual refresh, and 30 s auto-refresh; extended details include SSID, BSSID, vendor/OUI, signal percentage, router Wi-Fi generation, channel width, same/overlapping-channel AP counts, country code, and security, with right-click copy for a scanned router's full details
-- **Dynamic Dock App Icon** — dynamically rendered vector speed logo on startup
-- **Appearance & Unit Settings** — configure theme (Light / Dark / Match System), speed units (MB/s vs Mbps), and throughput history duration
-- **Session totals** — cumulative bytes downloaded and uploaded since monitoring started
-- **Runtime counter** — elapsed time displayed as `MM:SS` or `HH:MM:SS`
-- **Status reporting** — `idle`, `running`, `degraded`, or `stopped` states via `MonitorStatus`
-- **Error recovery** — detects `getifaddrs` failures and interface counter resets; auto-recovers after transient errors
-- **Configurable sampling interval** — defaults to 1 s, minimum 0.2 s
+- Live download and upload speeds
+- Throughput history, session totals, and runtime
+- Active network-interface details
+- Nearby Wi-Fi scanning with signal, channel, band, security, and vendor information
+- Manual local-network device discovery
+- Optional AI-assisted recognition for unknown devices
+- Light, dark, and system appearance modes
+- Configurable speed units and chart duration
 
-## Run (macOS)
+## Requirements
 
-### SwiftPM
+- macOS 15.6 or later
+- Xcode with macOS development support
 
-```bash
-cd /path/to/SimpleSpeedMonitor
-swift run
-```
+Apple On-Device device recognition additionally requires macOS 26, a compatible Apple Intelligence Mac, and Apple Intelligence enabled.
 
-### Xcode Project Mode
+## Getting Started
 
-Open the Xcode project:
+Clone the repository and open the Xcode project:
 
 ```bash
+git clone https://github.com/adisapir/MacSpeedMonitor.git
+cd MacSpeedMonitor
 open WiFiPulse.xcodeproj
 ```
 
 In Xcode:
 
 1. Select the `MacSpeedMonitor` scheme.
-2. Select `My Mac` as the run destination.
-3. Confirm the signing team under the `MacSpeedMonitor` target if Xcode asks.
-4. Run with `Product > Run` or `Cmd+R`.
+2. Select **My Mac** as the destination.
+3. Choose your development team under **Signing & Capabilities** if Xcode requests one.
+4. Press **Cmd+R** to build and run.
 
-The Xcode app target uses `Sources/MacSpeedMonitorApp/Info.plist` and `Sources/MacSpeedMonitorApp/MacSpeedMonitor.entitlements`, so Location Services, sandboxing, network access, signing, archiving, and future packaging are managed through the Xcode project.
-
-## Build (macOS)
-
-### SwiftPM
+You can also run the Swift package directly:
 
 ```bash
-swift build
+swift run
 ```
 
-### Xcode
+Run the test suite with:
 
 ```bash
-xcodebuild -project WiFiPulse.xcodeproj -scheme MacSpeedMonitor -configuration Debug build
+swift test
 ```
 
-For local compile validation without requiring a signing certificate:
+## Permissions
 
-```bash
-xcodebuild -project WiFiPulse.xcodeproj -scheme MacSpeedMonitor -configuration Debug -derivedDataPath /tmp/SimpleSpeedMonitorDerivedData CODE_SIGNING_ALLOWED=NO build
-```
+Some features require macOS permission:
 
-## Wi-Fi Scan Permissions
+- **Location Services** allows macOS to reveal nearby Wi-Fi network names and identifiers. The app requests it when you open Wi-Fi Scan.
+- **Local Network** access may be requested when you manually scan for devices on your network.
 
-macOS requires Location Services permission before third-party apps can read Wi-Fi SSID/BSSID details through `CoreWLAN`. Open the Wi-Fi Scan pane to trigger the permission request. If denied, enable Location Services for MacSpeedMonitor in System Settings.
+If a permission was previously denied, enable it for MacSpeedMonitor under **System Settings > Privacy & Security**.
 
-The SwiftPM executable embeds `Sources/MacSpeedMonitorApp/Info.plist` at link time so the location usage description is available when running with `swift run`. The Xcode app target uses the same plist and the dedicated entitlements file for the signed app bundle.
+## Optional AI Device Recognition
 
-## Local Network Scanner
+Under **Settings > AI Device Recognition**, choose one of these methods:
 
-Open **Connected Network** and choose **Scan Network** to check the Mac's directly connected private IPv4 network. Scans are always manual, are limited to networks containing no more than 256 addresses, and do not probe service ports or inspect network payloads.
+- **Apple On-Device** — runs locally and requires no API key.
+- **OpenAI API** — requires an [OpenAI API key](https://platform.openai.com/api-keys).
+- **Google Gemini** — requires a [Gemini API key](https://aistudio.google.com/app/apikey).
 
-Devices with a MAC address are saved locally in `~/Library/Application Support/MacSpeedMonitor/device-history.json`. Later scans use the MAC address to restore prior hostname, vendor, last-seen scanner metadata, and AI recognition while still showing only devices rediscovered in the current scan. The history is never uploaded and can be removed from Settings. Host firewalls, sleeping devices, guest-network isolation, and router policy can prevent devices from responding, so the result list may not contain every connected device.
-
-For each responding device, the scanner attempts standard reverse DNS followed by a short interface-scoped multicast-DNS lookup. This can recover `.local` names and DHCP hostnames when the router registers them in DNS; networks that do not publish hostname records will still show the device without a hostname.
-
-### AI Device Recognition (Optional)
-
-The Connected Network scanner can use Apple Intelligence on-device, OpenAI, or Google Gemini for cautious category suggestions for entries shown as **Unknown Device**. Choose a method under **Settings > AI Device Recognition**, then use **AI Scan** for all unknown devices or right-click one device and choose **Recognize Device through AI**.
-
-- **Apple On-Device** requires macOS 26, a compatible Apple Intelligence Mac, Apple Intelligence enabled, and its model ready. Recognition runs locally, works offline, and requires no API key.
-- **OpenAI API** uses `gpt-5.4-mini` through OpenAI's Responses API and requires the user's own API key. Requests are billed to that OpenAI account.
-- **Google Gemini** uses `gemini-3.5-flash` through Google's `generateContent` API and requires the user's own Gemini API key.
-- The selected method is remembered. Before an explicit choice, the app prefers Apple On-Device when it is available; it never silently falls back between methods.
-
-- The key is stored in macOS Keychain and is never included in source code, preferences, or logs.
-- Only a temporary item ID, discovered hostname, vendor name, Router / This Mac flags, and response time are sent. Private IP addresses and MAC addresses are never sent.
-- OpenAI and Gemini requests contain at most 25 devices per batch. Apple On-Device processes one device at a time. No method automatically retries or uses web search or tools.
-- Results are labeled as unverified AI suggestions, are stored locally by MAC address for reuse in later scans, and never replace scanner facts.
-- Vendor and timing metadata may be insufficient to recognize a device. A low-confidence or unavailable result is expected rather than a definitive identity.
-
-API keys stored in a local desktop application do not have server-grade isolation. Use dedicated provider project keys with appropriate usage limits, and remove them from Settings when no longer needed.
-
-The device-history file is versioned JSON written atomically with owner-only file permissions. Devices without a MAC address are not persisted because they cannot be matched reliably across scans.
-
-## Build a Distribution DMG
-
-Run the distribution script from the repository root:
-
-```bash
-Scripts/build-distribution.sh
-```
-
-The script performs a clean Release archive through Xcode, copies and signs the archived app, creates a compressed DMG with an Applications shortcut, and writes a SHA-256 checksum. The standalone `.app` and the `.dmg` are placed in the ignored `dist/` directory.
-
-By default the app is ad-hoc signed, which does not require Apple Developer Program membership but may require users to choose **Privacy & Security > Open Anyway**. For Developer ID signing and optional notarization:
-
-```bash
-SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
-NOTARY_PROFILE="notarytool-profile" \
-Scripts/build-distribution.sh
-```
-
-The notarization profile must already exist in the login Keychain through `xcrun notarytool store-credentials`.
-
-## Wi-Fi Vendor/OUI Data
-
-Wi-Fi Scan resolves AP vendors by comparing each BSSID against the bundled `Sources/SpeedMonitorCore/Resources/oui-vendors.tsv` resource. That file is generated from Wireshark's public manufacturer database and preserves 24-bit, 28-bit, and 36-bit MAC blocks, then stores vendor names once and maps each prefix to a vendor index to keep the resource smaller than the raw source file.
-
-To refresh the bundled data:
-
-```bash
-Scripts/generate-oui-vendors.py
-```
-
-The runtime lookup checks the longest available prefix first and also tries the universal-address variant for locally administered AP BSSIDs.
-
-## Clean Rebuild
-
-```bash
-swift package clean
-rm -rf .build
-swift build
-```
-
-## How It Works
-
-`NetworkSpeedMonitor` polls all active, non-loopback network interfaces via `getifaddrs` on a configurable timer. On each tick it:
-
-1. Reads raw byte counters (`ifi_ibytes` / `ifi_obytes`) from `if_data`.
-2. Computes instantaneous throughput from the delta since the last snapshot.
-3. Accumulates session totals and elapsed runtime.
-4. Transitions to `.degraded` on repeated failures; drops the stale baseline after 3 consecutive errors to recover cleanly.
-
-All published properties are annotated `@MainActor` and safe to observe directly from SwiftUI views.
+AI recognition is optional. Suggestions are clearly labeled and may not identify every device accurately.

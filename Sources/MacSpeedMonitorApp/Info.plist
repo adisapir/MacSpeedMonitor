@@ -24,6 +24,12 @@
 	<string>MacSpeedMonitor uses location permission only so macOS can reveal nearby Wi-Fi network names during scans.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>MacSpeedMonitor uses location permission only so macOS can reveal nearby Wi-Fi network names during scans.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MacSpeedMonitor uses local network access to discover devices when you open Connected Network or start a network scan.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_wifipulse._tcp</string>
+	</array>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

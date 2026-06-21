@@ -2,24 +2,8 @@ import SwiftUI
 import WidgetKit
 
 private enum SharedSnapshot {
-    static let appGroup = "group.com.adisapir.MacSpeedMonitor"
-    static let downloadKey = "widget.downloadBytesPerSecond"
-    static let uploadKey = "widget.uploadBytesPerSecond"
-    static let updatedAtKey = "widget.updatedAt"
-    static let isRunningKey = "widget.isRunning"
-
     static func load() -> (download: Double, upload: Double, updatedAt: Date?, isRunning: Bool) {
-        guard let defaults = UserDefaults(suiteName: appGroup) else {
-            return (0, 0, nil, false)
-        }
-
-        let timestamp = defaults.double(forKey: updatedAtKey)
-        return (
-            max(0, defaults.double(forKey: downloadKey)),
-            max(0, defaults.double(forKey: uploadKey)),
-            timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : nil,
-            defaults.bool(forKey: isRunningKey)
-        )
+        (0, 0, nil, false)
     }
 }
 
@@ -203,7 +187,7 @@ struct WiFiPulseWidget: Widget {
             WiFiPulseWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Network Speed")
-        .description("See the latest download and upload speeds measured by WiFiPulse.")
+        .description("Widget data sharing is reserved for a future update.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

@@ -282,7 +282,11 @@ final class OpenAIAPIKeyStore: APIKeyStoring, @unchecked Sendable {
     }
 
     var hasKey: Bool {
-        (try? loadKey())??.isEmpty == false
+        var query = baseQuery
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess
     }
 
     func loadKey() throws -> String? {
@@ -351,7 +355,11 @@ protocol AIRecognitionProviding: Sendable {
     func recognize(_ inputs: [AIRecognitionInput]) async throws -> [DeviceAIRecognition]
 }
 
-struct OpenAIRecognitionProvider: AIRecognitionProviding, Sendable {
+protocol APIKeyBackedAIRecognitionProviding: AIRecognitionProviding {
+    var hasAPIKey: Bool { get }
+}
+
+struct OpenAIRecognitionProvider: APIKeyBackedAIRecognitionProviding, Sendable {
     static let model = "gpt-5.4-mini"
     static let responsesURL = URL(string: "https://api.openai.com/v1/responses")!
     static let modelURL = URL(string: "https://api.openai.com/v1/models/\(model)")!
@@ -366,11 +374,7 @@ struct OpenAIRecognitionProvider: AIRecognitionProviding, Sendable {
 
     var hasAPIKey: Bool { keyStore.hasKey }
     var method: AIRecognitionMethod { .openAI }
-    var availability: AIRecognitionAvailability {
-        hasAPIKey
-            ? .available
-            : .unavailable("Add an OpenAI API key in Settings before using AI recognition.")
-    }
+    var availability: AIRecognitionAvailability { .available }
     var maximumBatchSize: Int { 25 }
 
     func testConnection() async throws {

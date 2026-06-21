@@ -7,48 +7,9 @@ import CoreWLAN
 import IOKit
 import IOKit.network
 import SystemConfiguration
-#if canImport(WidgetKit)
-import WidgetKit
-#endif
 
 @MainActor
 public final class NetworkSpeedMonitor: ObservableObject {
-    @MainActor
-    private enum WidgetSnapshot {
-        static let appGroup = "group.com.adisapir.MacSpeedMonitor"
-        static let downloadKey = "widget.downloadBytesPerSecond"
-        static let uploadKey = "widget.uploadBytesPerSecond"
-        static let updatedAtKey = "widget.updatedAt"
-        static let isRunningKey = "widget.isRunning"
-        static let widgetKind = "WiFiPulseWidget"
-        static let reloadInterval: TimeInterval = 60
-        static var lastReloadRequestAt: Date?
-
-        static func publish(
-            download: Double,
-            upload: Double,
-            updatedAt: Date,
-            isRunning: Bool,
-            forceReload: Bool = false
-        ) {
-            guard let defaults = UserDefaults(suiteName: appGroup) else { return }
-            defaults.set(download, forKey: downloadKey)
-            defaults.set(upload, forKey: uploadKey)
-            defaults.set(updatedAt.timeIntervalSince1970, forKey: updatedAtKey)
-            defaults.set(isRunning, forKey: isRunningKey)
-
-            #if canImport(WidgetKit)
-            let elapsedSinceReload = lastReloadRequestAt.map { updatedAt.timeIntervalSince($0) }
-            let shouldReload = forceReload
-                || (elapsedSinceReload.map { $0 >= reloadInterval } ?? true)
-            if shouldReload {
-                lastReloadRequestAt = updatedAt
-                WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
-            }
-            #endif
-        }
-    }
-
     @Published public private(set) var downloadBytesPerSecond: Double = 0
     @Published public private(set) var uploadBytesPerSecond: Double = 0
     @Published public private(set) var maxDownloadBytesPerSecond: Double = 0
@@ -125,8 +86,6 @@ public final class NetworkSpeedMonitor: ObservableObject {
         self.aiRecognitionProviders = providers
         self.aiRecognitionPreferences = aiRecognitionPreferences
         self.deviceHistoryStore = deviceHistoryStore
-        self.hasOpenAIAPIKey = providers[.openAI]?.availability.isAvailable == true
-        self.hasGeminiAPIKey = providers[.googleGemini]?.availability.isAvailable == true
         let initialMethod = AIRecognitionMethodSelection.initialMethod(
             storedRawValue: aiRecognitionPreferences.string(forKey: Self.aiRecognitionMethodPreferenceKey),
             appleAvailability: providers[.appleOnDevice]?.availability
@@ -296,8 +255,6 @@ public final class NetworkSpeedMonitor: ObservableObject {
     }
 
     public func refreshAIRecognitionAvailability() {
-        hasOpenAIAPIKey = aiRecognitionProviders[.openAI]?.availability.isAvailable == true
-        hasGeminiAPIKey = aiRecognitionProviders[.googleGemini]?.availability.isAvailable == true
         if aiRecognitionPreferences.object(forKey: Self.aiRecognitionMethodPreferenceKey) == nil {
             selectedAIRecognitionMethod = aiRecognitionProviders[.appleOnDevice]?.availability.isAvailable == true
                 ? .appleOnDevice
@@ -307,7 +264,34 @@ public final class NetworkSpeedMonitor: ObservableObject {
     }
 
     public func refreshOpenAIAPIKeyAvailability() {
-        refreshAIRecognitionAvailability()
+        let isConfigured = hasConfiguredAPIKey(for: .openAI)
+        hasOpenAIAPIKey = isConfigured
+        if selectedAIRecognitionMethod == .openAI {
+            selectedAIRecognitionAvailability = isConfigured
+                ? .available
+                : .unavailable("Add an OpenAI API key in Settings before using AI recognition.")
+        }
+    }
+
+    public func refreshGeminiAPIKeyAvailability() {
+        let isConfigured = hasConfiguredAPIKey(for: .googleGemini)
+        hasGeminiAPIKey = isConfigured
+        if selectedAIRecognitionMethod == .googleGemini {
+            selectedAIRecognitionAvailability = isConfigured
+                ? .available
+                : .unavailable("Add a Google Gemini API key in Settings before using AI recognition.")
+        }
+    }
+
+    public func refreshSelectedAIRecognitionCredentials() {
+        switch selectedAIRecognitionMethod {
+        case .appleOnDevice:
+            selectedAIRecognitionAvailability = availability(for: .appleOnDevice)
+        case .openAI:
+            refreshOpenAIAPIKeyAvailability()
+        case .googleGemini:
+            refreshGeminiAPIKeyAvailability()
+        }
     }
 
     public func availability(for method: AIRecognitionMethod) -> AIRecognitionAvailability {
@@ -315,13 +299,17 @@ public final class NetworkSpeedMonitor: ObservableObject {
             ?? .unavailable("This AI method is unavailable.")
     }
 
+    private func hasConfiguredAPIKey(for method: AIRecognitionMethod) -> Bool {
+        (aiRecognitionProviders[method] as? any APIKeyBackedAIRecognitionProviding)?.hasAPIKey == true
+    }
+
     public func setAIRecognitionMethod(_ method: AIRecognitionMethod) {
         guard !isAIRecognitionRunning,
               method != .appleOnDevice || availability(for: method).isAvailable
         else { return }
         selectedAIRecognitionMethod = method
-        selectedAIRecognitionAvailability = availability(for: method)
         aiRecognitionPreferences.set(method.rawValue, forKey: Self.aiRecognitionMethodPreferenceKey)
+        refreshSelectedAIRecognitionCredentials()
     }
 
     public func clearDeviceHistory() {
@@ -363,7 +351,6 @@ public final class NetworkSpeedMonitor: ObservableObject {
         unknownOnly: Bool
     ) {
         guard !isAIRecognitionRunning, networkScanPhase != .scanning else { return }
-        refreshAIRecognitionAvailability()
         let provider = aiRecognitionProviders[selectedAIRecognitionMethod]
         guard let provider, provider.availability.isAvailable else {
             aiRecognitionErrorDescription = selectedAIRecognitionAvailability.message
@@ -558,14 +545,6 @@ public final class NetworkSpeedMonitor: ObservableObject {
         timerCancellable?.cancel()
         timerCancellable = nil
         status = .stopped
-        WidgetSnapshot.publish(
-            download: downloadBytesPerSecond,
-            upload: uploadBytesPerSecond,
-            updatedAt: Date(),
-            isRunning: false,
-            forceReload: true
-        )
-
         if resetValues {
             downloadBytesPerSecond = 0
             uploadBytesPerSecond = 0
@@ -1097,12 +1076,6 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
         downloadBytesPerSecond = Double(downloadDiff) / deltaTime
         uploadBytesPerSecond = Double(uploadDiff) / deltaTime
-        WidgetSnapshot.publish(
-            download: downloadBytesPerSecond,
-            upload: uploadBytesPerSecond,
-            updatedAt: current.timestamp,
-            isRunning: true
-        )
         maxDownloadBytesPerSecond = max(maxDownloadBytesPerSecond, downloadBytesPerSecond)
         maxUploadBytesPerSecond = max(maxUploadBytesPerSecond, uploadBytesPerSecond)
         totalDownloadBytes += downloadDiff

@@ -15,7 +15,13 @@ final class GeminiAPIKeyStore: APIKeyStoring, @unchecked Sendable {
         self.account = account
     }
 
-    var hasKey: Bool { (try? loadKey())??.isEmpty == false }
+    var hasKey: Bool {
+        var query = baseQuery
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess
+    }
 
     func loadKey() throws -> String? {
         var query = baseQuery
@@ -74,7 +80,7 @@ final class GeminiAPIKeyStore: APIKeyStoring, @unchecked Sendable {
     }
 }
 
-struct GeminiRecognitionProvider: AIRecognitionProviding, Sendable {
+struct GeminiRecognitionProvider: APIKeyBackedAIRecognitionProviding, Sendable {
     static let model = "gemini-3.5-flash"
     static let generateContentURL = URL(
         string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
@@ -91,12 +97,9 @@ struct GeminiRecognitionProvider: AIRecognitionProviding, Sendable {
         self.keyStore = keyStore
     }
 
+    var hasAPIKey: Bool { keyStore.hasKey }
     var method: AIRecognitionMethod { .googleGemini }
-    var availability: AIRecognitionAvailability {
-        keyStore.hasKey
-            ? .available
-            : .unavailable("Add a Google Gemini API key in Settings before using AI recognition.")
-    }
+    var availability: AIRecognitionAvailability { .available }
     var maximumBatchSize: Int { 25 }
 
     func testConnection() async throws {

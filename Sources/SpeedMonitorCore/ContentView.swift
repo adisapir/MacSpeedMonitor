@@ -833,6 +833,7 @@ struct DashboardView: View {
 
 struct NetworkInfoView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
+    @StateObject private var localNetworkPermission = LocalNetworkPermissionManager()
     @AppStorage("aiRecognitionPrivacyAccepted") private var aiPrivacyAccepted = false
     @AppStorage("geminiRecognitionPrivacyAccepted") private var geminiPrivacyAccepted = false
     @State private var showingAIPrivacyDisclosure = false
@@ -979,12 +980,25 @@ struct NetworkInfoView: View {
 
                 networkScannerSection
                     .padding(.top, 8)
+
+                if let guidance = localNetworkPermission.guidanceMessage {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "network.badge.shield.half.filled")
+                            .foregroundStyle(.orange)
+                        Text(guidance)
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.horizontal)
+                }
             }
         }
         .onAppear {
+            localNetworkPermission.requestAuthorizationIfNeeded()
             monitor.refreshAIRecognitionAvailability()
         }
         .onDisappear {
+            localNetworkPermission.cancelRequest()
             monitor.cancelNetworkScan()
         }
     }
@@ -1164,7 +1178,7 @@ struct NetworkInfoView: View {
     }
 
     private func requestAIRecognition(for device: DiscoveredNetworkDevice?) {
-        monitor.refreshAIRecognitionAvailability()
+        monitor.refreshSelectedAIRecognitionCredentials()
         guard monitor.selectedAIRecognitionAvailability.isAvailable else {
             NotificationCenter.default.post(name: .selectTabNotification, object: ContentView.Tab.settings)
             return
@@ -2426,7 +2440,7 @@ struct SettingsView: View {
                 .padding(.horizontal)
             }
         }
-        .onAppear { monitor.refreshAIRecognitionAvailability() }
+        .onAppear { monitor.refreshSelectedAIRecognitionCredentials() }
         .confirmationDialog(
             "Clear all saved device history?",
             isPresented: $showingClearHistoryConfirmation
@@ -2488,7 +2502,7 @@ struct SettingsView: View {
             geminiKeyInput = ""
             geminiStatusMessage = "API key saved securely."
             geminiStatusIsError = false
-            monitor.refreshAIRecognitionAvailability()
+            monitor.refreshGeminiAPIKeyAvailability()
         } catch {
             geminiStatusMessage = error.localizedDescription
             geminiStatusIsError = true
@@ -2501,7 +2515,7 @@ struct SettingsView: View {
             geminiKeyInput = ""
             geminiStatusMessage = "API key removed."
             geminiStatusIsError = false
-            monitor.refreshAIRecognitionAvailability()
+            monitor.refreshGeminiAPIKeyAvailability()
         } catch {
             geminiStatusMessage = error.localizedDescription
             geminiStatusIsError = true

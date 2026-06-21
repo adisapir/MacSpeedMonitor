@@ -175,7 +175,7 @@ struct MacSpeedMonitorApp: App {
                 monitor.startMonitoring()
             case .inactive, .background:
                 AppIconProvider.applyIcon()
-                monitor.startMonitoring()
+                monitor.stopMonitoring()
             @unknown default:
                 AppIconProvider.applyIcon()
                 monitor.stopMonitoring()
