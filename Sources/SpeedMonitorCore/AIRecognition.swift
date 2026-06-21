@@ -53,6 +53,48 @@ extension DiscoveredNetworkDevice {
         let suggestedName = recognition.suggestedName.trimmingCharacters(in: .whitespacesAndNewlines)
         return suggestedName.isEmpty ? displayName : suggestedName
     }
+
+    func systemImageName(aiState: DeviceAIRecognitionState?) -> String {
+        if isRouter { return "wifi.router.fill" }
+        if isLocalDevice { return "desktopcomputer" }
+
+        guard displayName == "Unknown Device",
+              case .recognized(let recognition) = aiState else {
+            return "network"
+        }
+
+        let description = [
+            recognition.category,
+            recognition.suggestedName,
+            recognition.likelyPurpose,
+        ]
+        .joined(separator: " ")
+        .lowercased()
+
+        let mappings: [([String], String)] = [
+            (["printer", "scanner"], "printer.fill"),
+            (["camera", "webcam"], "camera.fill"),
+            (["television", "smart tv", "media player", "streaming"], "tv.fill"),
+            (["speaker", "audio", "soundbar"], "hifispeaker.fill"),
+            (["phone", "smartphone", "mobile"], "iphone"),
+            (["tablet", "ipad"], "ipad"),
+            (["laptop", "notebook"], "laptopcomputer"),
+            (["computer", "desktop", "workstation", "server"], "desktopcomputer"),
+            (["game", "console"], "gamecontroller.fill"),
+            (["storage", "nas", "drive"], "externaldrive.fill"),
+            (["watch", "wearable"], "applewatch"),
+            (["light", "bulb", "lamp"], "lightbulb.fill"),
+            (["thermostat", "climate"], "thermometer.medium"),
+            (["router", "access point", "gateway", "mesh"], "wifi.router.fill"),
+            (["hub", "bridge", "controller"], "point.3.connected.trianglepath.dotted"),
+            (["sensor", "alarm", "security"], "sensor.fill"),
+            (["appliance", "vacuum", "refrigerator", "oven", "washer"], "house.fill"),
+        ]
+
+        return mappings.first { keywords, _ in
+            keywords.contains { description.contains($0) }
+        }?.1 ?? "network"
+    }
 }
 
 struct AIRecognitionInput: Codable, Sendable, Equatable {

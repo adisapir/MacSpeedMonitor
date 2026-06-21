@@ -146,6 +146,50 @@ final class AIRecognitionTests: XCTestCase {
         )
     }
 
+    func testRecognizedDeviceTypeChangesUnknownDeviceIcon() throws {
+        let unknownDevice = try XCTUnwrap(DiscoveredNetworkDevice(ipv4Address: "192.168.1.20"))
+        let recognition = DeviceAIRecognition(
+            itemID: "item-1",
+            suggestedName: "Living Room Speaker",
+            category: "Smart home audio",
+            likelyPurpose: "Playing music",
+            confidence: .high,
+            rationale: "Hostname and vendor evidence",
+            limitations: "Exact model unknown"
+        )
+
+        XCTAssertEqual(unknownDevice.systemImageName(aiState: nil), "network")
+        XCTAssertEqual(
+            unknownDevice.systemImageName(aiState: .recognized(recognition)),
+            "hifispeaker.fill"
+        )
+    }
+
+    func testDeviceIconKeepsKnownRolesAndFallsBackForUnrecognizedCategories() throws {
+        let router = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.1",
+            isRouter: true
+        ))
+        let localDevice = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.2",
+            isLocalDevice: true
+        ))
+        let unknownDevice = try XCTUnwrap(DiscoveredNetworkDevice(ipv4Address: "192.168.1.3"))
+        let recognition = DeviceAIRecognition(
+            itemID: "item-1",
+            suggestedName: "Specialized device",
+            category: "Unclassified",
+            likelyPurpose: "Unknown",
+            confidence: .low,
+            rationale: "Limited evidence",
+            limitations: "Unable to determine a type"
+        )
+
+        XCTAssertEqual(router.systemImageName(aiState: .recognized(recognition)), "wifi.router.fill")
+        XCTAssertEqual(localDevice.systemImageName(aiState: .recognized(recognition)), "desktopcomputer")
+        XCTAssertEqual(unknownDevice.systemImageName(aiState: .recognized(recognition)), "network")
+    }
+
     func testKeychainStoreSavesReplacesAndRemovesKey() throws {
         let store = OpenAIAPIKeyStore(
             service: "com.adisapir.MacSpeedMonitor.tests.\(UUID().uuidString)",

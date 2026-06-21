@@ -1123,23 +1123,32 @@ struct NetworkInfoView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 22, height: 22)
-                        .background {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [.purple, .pink, .orange],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                        }
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.primary, .purple, .pink],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
 
                     Text("AI Scan (\(monitor.unknownDevicesForAIRecognition.count))")
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [.purple, .pink, .orange],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.5
+                        )
+                }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
             .disabled(
                 monitor.networkScanPhase == .scanning
                     || monitor.unknownDevicesForAIRecognition.isEmpty
@@ -1245,7 +1254,7 @@ private struct NetworkDeviceRow: View {
     var body: some View {
         GlassCard(glowColor: device.isRouter ? .purple : (device.isLocalDevice ? .blue : .cyan)) {
             HStack(alignment: .top, spacing: 14) {
-                Image(systemName: device.isRouter ? "wifi.router.fill" : (device.isLocalDevice ? "desktopcomputer" : "network"))
+                Image(systemName: device.systemImageName(aiState: aiState))
                     .font(.title2)
                     .foregroundStyle(device.isStale ? Color.secondary : Color.blue)
 
@@ -2194,13 +2203,33 @@ struct SettingsView: View {
 
                     GlassCard(glowColor: .mint) {
                         VStack(alignment: .leading, spacing: 12) {
-                            Label("AI Device Recognition", systemImage: "sparkles")
-                                .font(.headline)
-                                .foregroundStyle(.mint)
+                            HStack {
+                                Label("AI Device Recognition", systemImage: "sparkles")
+                                    .font(.headline)
+                                    .foregroundStyle(.mint)
+
+                                Spacer()
+
+                                InfoButton(
+                                    title: "Using AI Device Recognition",
+                                    introduction: "This feature needs an OpenAI API key from your own OpenAI Platform account. Create a key, copy it once, then save it here before testing the connection.",
+                                    items: [
+                                        HelpItem(term: "Create a key", explanation: "Open the API Keys page below, sign in to your OpenAI Platform account, and create a new secret key. Keep the key private and do not share or commit it to source control."),
+                                        HelpItem(term: "Secure local storage", explanation: "The app stores the key in your macOS Keychain, not in its settings or device-history files. The Keychain item is restricted to this Mac and is used only to authenticate requests sent directly to OpenAI."),
+                                        HelpItem(term: "Limited device data", explanation: "Recognition sends only redacted metadata such as hostname, vendor, role flags, and response time. IP and MAC addresses are never sent to OpenAI."),
+                                        HelpItem(term: "Your API account", explanation: "API access and usage are managed through your OpenAI Platform account and may be billed separately from a ChatGPT subscription. You can remove the saved key here or revoke it from OpenAI at any time."),
+                                    ]
+                                )
+                            }
 
                             Text("Use your own OpenAI API key to get cautious AI suggestions for unknown network devices. The key is stored in macOS Keychain.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+
+                            Link(destination: URL(string: "https://platform.openai.com/api-keys")!) {
+                                Label("Create an OpenAI API Key", systemImage: "arrow.up.right.square")
+                            }
+                            .font(.subheadline)
 
                             SecureField(
                                 monitor.hasOpenAIAPIKey ? "Enter a replacement key" : "OpenAI API key",
