@@ -55,6 +55,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var aiRecognitionTotalCount = 0
     @Published public private(set) var aiRecognitionErrorDescription: String?
     @Published public private(set) var hasOpenAIAPIKey = false
+    @Published public private(set) var selectedAIRecognitionMethod: AIRecognitionMethod = .openAI
+    @Published public private(set) var selectedAIRecognitionAvailability: AIRecognitionAvailability = .unavailable("AI recognition is unavailable.")
     @Published public private(set) var deviceHistoryRecordCount = 0
     @Published public private(set) var deviceHistoryErrorDescription: String?
 
@@ -66,7 +68,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
     private var networkScanGeneration = UUID()
     private var aiRecognitionTask: Task<Void, Never>?
     private var aiRecognitionID: UUID?
-    private let aiRecognitionProvider: any AIRecognitionProviding
+    private let aiRecognitionProviders: [AIRecognitionMethod: any AIRecognitionProviding]
+    private let aiRecognitionPreferences: UserDefaults
     private let deviceHistoryStore: any DeviceHistoryStoring
     private var persistedDeviceRecords: [String: PersistedDeviceRecord]
     private var previousSnapshot: InterfaceSnapshot?
@@ -76,6 +79,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
     private var pathMonitor: NWPathMonitor?
 
     nonisolated private static let logger = Logger(subsystem: "MacSpeedMonitor", category: "NetworkSpeedMonitor")
+    private static let aiRecognitionMethodPreferenceKey = "aiRecognitionMethod"
 
     public convenience init(samplingInterval: TimeInterval = 1.0) {
         self.init(
@@ -88,12 +92,24 @@ public final class NetworkSpeedMonitor: ObservableObject {
     init(
         samplingInterval: TimeInterval,
         aiRecognitionProvider: any AIRecognitionProviding,
-        deviceHistoryStore: any DeviceHistoryStoring = LocalDeviceHistoryStore.shared
+        deviceHistoryStore: any DeviceHistoryStoring = LocalDeviceHistoryStore.shared,
+        aiRecognitionPreferences: UserDefaults = .standard
     ) {
+        var providers = AIRecognitionProviderFactory.providers()
+        providers[aiRecognitionProvider.method] = aiRecognitionProvider
         self.samplingInterval = max(0.2, samplingInterval)
-        self.aiRecognitionProvider = aiRecognitionProvider
+        self.aiRecognitionProviders = providers
+        self.aiRecognitionPreferences = aiRecognitionPreferences
         self.deviceHistoryStore = deviceHistoryStore
-        self.hasOpenAIAPIKey = aiRecognitionProvider.hasAPIKey
+        self.hasOpenAIAPIKey = providers[.openAI]?.availability.isAvailable == true
+        let initialMethod = AIRecognitionMethodSelection.initialMethod(
+            storedRawValue: aiRecognitionPreferences.string(forKey: Self.aiRecognitionMethodPreferenceKey),
+            appleAvailability: providers[.appleOnDevice]?.availability
+                ?? .unavailable("Apple On-Device recognition is unavailable.")
+        )
+        self.selectedAIRecognitionMethod = initialMethod
+        self.selectedAIRecognitionAvailability = providers[initialMethod]?.availability
+            ?? .unavailable("The selected AI method is unavailable.")
         do {
             let records = try deviceHistoryStore.load()
             self.persistedDeviceRecords = records
@@ -254,8 +270,32 @@ public final class NetworkSpeedMonitor: ObservableObject {
         networkScanDevices.filter(\.isUnknownForAIRecognition)
     }
 
+    public func refreshAIRecognitionAvailability() {
+        hasOpenAIAPIKey = aiRecognitionProviders[.openAI]?.availability.isAvailable == true
+        if aiRecognitionPreferences.object(forKey: Self.aiRecognitionMethodPreferenceKey) == nil {
+            selectedAIRecognitionMethod = aiRecognitionProviders[.appleOnDevice]?.availability.isAvailable == true
+                ? .appleOnDevice
+                : .openAI
+        }
+        selectedAIRecognitionAvailability = availability(for: selectedAIRecognitionMethod)
+    }
+
     public func refreshOpenAIAPIKeyAvailability() {
-        hasOpenAIAPIKey = aiRecognitionProvider.hasAPIKey
+        refreshAIRecognitionAvailability()
+    }
+
+    public func availability(for method: AIRecognitionMethod) -> AIRecognitionAvailability {
+        aiRecognitionProviders[method]?.availability
+            ?? .unavailable("This AI method is unavailable.")
+    }
+
+    public func setAIRecognitionMethod(_ method: AIRecognitionMethod) {
+        guard !isAIRecognitionRunning,
+              method == .openAI || availability(for: method).isAvailable
+        else { return }
+        selectedAIRecognitionMethod = method
+        selectedAIRecognitionAvailability = availability(for: method)
+        aiRecognitionPreferences.set(method.rawValue, forKey: Self.aiRecognitionMethodPreferenceKey)
     }
 
     public func clearDeviceHistory() {
@@ -297,9 +337,10 @@ public final class NetworkSpeedMonitor: ObservableObject {
         unknownOnly: Bool
     ) {
         guard !isAIRecognitionRunning, networkScanPhase != .scanning else { return }
-        refreshOpenAIAPIKeyAvailability()
-        guard hasOpenAIAPIKey else {
-            aiRecognitionErrorDescription = AIRecognitionError.missingAPIKey.localizedDescription
+        refreshAIRecognitionAvailability()
+        let provider = aiRecognitionProviders[selectedAIRecognitionMethod]
+        guard let provider, provider.availability.isAvailable else {
+            aiRecognitionErrorDescription = selectedAIRecognitionAvailability.message
             return
         }
 
@@ -320,7 +361,10 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
         aiRecognitionTask = Task { [weak self] in
             guard let self else { return }
-            let batches = AIRecognitionBatcher.batches(from: devices)
+            let batches = AIRecognitionBatcher.batches(
+                from: devices,
+                maximumSize: provider.maximumBatchSize
+            )
 
             for batch in batches {
                 if Task.isCancelled { return }
@@ -335,7 +379,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
                 }
 
                 do {
-                    let recognitions = try await self.aiRecognitionProvider.recognize(inputs)
+                    let recognitions = try await provider.recognize(inputs)
                     guard self.aiRecognitionID == recognitionID,
                           self.networkScanGeneration == generation,
                           !Task.isCancelled

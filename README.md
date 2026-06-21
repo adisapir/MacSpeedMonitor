@@ -95,12 +95,15 @@ For each responding device, the scanner attempts standard reverse DNS followed b
 
 ### AI Device Recognition (Optional)
 
-The Connected Network scanner can ask OpenAI for a cautious category suggestion for entries shown as **Unknown Device**. Configure your own OpenAI API key under **Settings > AI Device Recognition**, then use **AI Scan** for all unknown devices or right-click one device and choose **Recognize Device through AI**.
+The Connected Network scanner can use Apple Intelligence on-device or OpenAI for cautious category suggestions for entries shown as **Unknown Device**. Choose a method under **Settings > AI Device Recognition**, then use **AI Scan** for all unknown devices or right-click one device and choose **Recognize Device through AI**.
+
+- **Apple On-Device** requires macOS 26, a compatible Apple Intelligence Mac, Apple Intelligence enabled, and its model ready. Recognition runs locally, works offline, and requires no API key.
+- **OpenAI API** uses `gpt-5.4-mini` through OpenAI's Responses API and requires the user's own API key. Requests are billed to that OpenAI account.
+- The selected method is remembered. Before an explicit choice, the app prefers Apple On-Device when it is available; it never silently falls back between methods.
 
 - The key is stored in macOS Keychain and is never included in source code, preferences, or logs.
-- Requests use `gpt-5.4-mini` through OpenAI's Responses API and are billed to the user's OpenAI account.
 - Only a temporary item ID, discovered hostname, vendor name, Router / This Mac flags, and response time are sent. Private IP addresses and MAC addresses are never sent.
-- Requests contain at most 25 devices per batch, do not use web search or tools, and are not automatically retried.
+- OpenAI requests contain at most 25 devices per batch. Apple On-Device processes one device at a time. Neither method automatically retries or uses web search or tools.
 - Results are labeled as unverified AI suggestions, are stored locally by MAC address for reuse in later scans, and never replace scanner facts.
 - Vendor and timing metadata may be insufficient to recognize a device. A low-confidence or unavailable result is expected rather than a definitive identity.
 

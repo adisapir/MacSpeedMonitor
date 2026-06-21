@@ -1,6 +1,49 @@
 import Foundation
 import Security
 
+public enum AIRecognitionMethod: String, Codable, Sendable, CaseIterable, Identifiable {
+    case appleOnDevice
+    case openAI
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .appleOnDevice: return "Apple On-Device"
+        case .openAI: return "OpenAI API"
+        }
+    }
+}
+
+public enum AIRecognitionAvailability: Sendable, Equatable {
+    case available
+    case unavailable(String)
+
+    public var isAvailable: Bool {
+        if case .available = self { return true }
+        return false
+    }
+
+    public var message: String {
+        switch self {
+        case .available: return "Ready"
+        case .unavailable(let reason): return reason
+        }
+    }
+}
+
+struct AIRecognitionMethodSelection {
+    static func initialMethod(
+        storedRawValue: String?,
+        appleAvailability: AIRecognitionAvailability
+    ) -> AIRecognitionMethod {
+        if let storedRawValue, let stored = AIRecognitionMethod(rawValue: storedRawValue) {
+            return stored
+        }
+        return appleAvailability.isAvailable ? .appleOnDevice : .openAI
+    }
+}
+
 public enum AIRecognitionConfidence: String, Codable, Sendable, CaseIterable {
     case low
     case medium
@@ -15,6 +58,7 @@ public struct DeviceAIRecognition: Codable, Sendable, Hashable {
     public let confidence: AIRecognitionConfidence
     public let rationale: String
     public let limitations: String
+    public let method: AIRecognitionMethod
 
     public init(
         itemID: String,
@@ -23,7 +67,8 @@ public struct DeviceAIRecognition: Codable, Sendable, Hashable {
         likelyPurpose: String,
         confidence: AIRecognitionConfidence,
         rationale: String,
-        limitations: String
+        limitations: String,
+        method: AIRecognitionMethod = .openAI
     ) {
         self.itemID = itemID
         self.suggestedName = suggestedName
@@ -32,6 +77,23 @@ public struct DeviceAIRecognition: Codable, Sendable, Hashable {
         self.confidence = confidence
         self.rationale = rationale
         self.limitations = limitations
+        self.method = method
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case itemID, suggestedName, category, likelyPurpose, confidence, rationale, limitations, method
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        itemID = try container.decode(String.self, forKey: .itemID)
+        suggestedName = try container.decode(String.self, forKey: .suggestedName)
+        category = try container.decode(String.self, forKey: .category)
+        likelyPurpose = try container.decode(String.self, forKey: .likelyPurpose)
+        confidence = try container.decode(AIRecognitionConfidence.self, forKey: .confidence)
+        rationale = try container.decode(String.self, forKey: .rationale)
+        limitations = try container.decode(String.self, forKey: .limitations)
+        method = try container.decodeIfPresent(AIRecognitionMethod.self, forKey: .method) ?? .openAI
     }
 }
 
@@ -133,6 +195,7 @@ enum AIRecognitionError: LocalizedError, Sendable, Equatable {
     case rateLimited
     case refused(String)
     case invalidResponse
+    case unavailable(String)
     case server(String)
 
     var errorDescription: String? {
@@ -148,7 +211,9 @@ enum AIRecognitionError: LocalizedError, Sendable, Equatable {
         case .refused(let reason):
             return reason.isEmpty ? "OpenAI declined to process this request." : reason
         case .invalidResponse:
-            return "OpenAI returned an unexpected response. No device details were changed."
+            return "The AI method returned an unexpected response. No device details were changed."
+        case .unavailable(let reason):
+            return reason
         case .server(let message):
             return message.isEmpty ? "OpenAI could not complete the request." : message
         }
@@ -240,8 +305,9 @@ final class OpenAIAPIKeyStore: APIKeyStoring, @unchecked Sendable {
 }
 
 protocol AIRecognitionProviding: Sendable {
-    var hasAPIKey: Bool { get }
-    func testConnection() async throws
+    var method: AIRecognitionMethod { get }
+    var availability: AIRecognitionAvailability { get }
+    var maximumBatchSize: Int { get }
     func recognize(_ inputs: [AIRecognitionInput]) async throws -> [DeviceAIRecognition]
 }
 
@@ -259,6 +325,13 @@ struct OpenAIRecognitionProvider: AIRecognitionProviding, Sendable {
     }
 
     var hasAPIKey: Bool { keyStore.hasKey }
+    var method: AIRecognitionMethod { .openAI }
+    var availability: AIRecognitionAvailability {
+        hasAPIKey
+            ? .available
+            : .unavailable("Add an OpenAI API key in Settings before using AI recognition.")
+    }
+    var maximumBatchSize: Int { 25 }
 
     func testConnection() async throws {
         var request = URLRequest(url: Self.modelURL)
@@ -295,7 +368,18 @@ struct OpenAIRecognitionProvider: AIRecognitionProviding, Sendable {
         guard Set(actualIDs) == expectedIDs, Set(actualIDs).count == actualIDs.count else {
             throw AIRecognitionError.invalidResponse
         }
-        return decoded.recognitions
+        return decoded.recognitions.map {
+            DeviceAIRecognition(
+                itemID: $0.itemID,
+                suggestedName: $0.suggestedName,
+                category: $0.category,
+                likelyPurpose: $0.likelyPurpose,
+                confidence: $0.confidence,
+                rationale: $0.rationale,
+                limitations: $0.limitations,
+                method: .openAI
+            )
+        }
     }
 
     private func authorize(_ request: inout URLRequest) throws {
@@ -374,6 +458,35 @@ struct OpenAIRecognitionProvider: AIRecognitionProviding, Sendable {
             ],
             "required": ["recognitions"],
         ]
+    }
+}
+
+struct UnavailableAIRecognitionProvider: AIRecognitionProviding {
+    let method: AIRecognitionMethod
+    let reason: String
+
+    var availability: AIRecognitionAvailability { .unavailable(reason) }
+    var maximumBatchSize: Int { 1 }
+
+    func recognize(_ inputs: [AIRecognitionInput]) async throws -> [DeviceAIRecognition] {
+        throw AIRecognitionError.unavailable(reason)
+    }
+}
+
+enum AIRecognitionProviderFactory {
+    static func providers() -> [AIRecognitionMethod: any AIRecognitionProviding] {
+        var providers: [AIRecognitionMethod: any AIRecognitionProviding] = [
+            .openAI: OpenAIRecognitionProvider(),
+        ]
+        if #available(macOS 26.0, *) {
+            providers[.appleOnDevice] = AppleFoundationModelsRecognitionProvider()
+        } else {
+            providers[.appleOnDevice] = UnavailableAIRecognitionProvider(
+                method: .appleOnDevice,
+                reason: "Apple On-Device recognition requires macOS 26 or later."
+            )
+        }
+        return providers
     }
 }
 

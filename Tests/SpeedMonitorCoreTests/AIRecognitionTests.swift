@@ -105,6 +105,58 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(batches.flatMap { $0 }, Array(0..<61))
     }
 
+    func testMethodSelectionPrefersAvailableAppleUntilUserMakesAChoice() {
+        XCTAssertEqual(
+            AIRecognitionMethodSelection.initialMethod(
+                storedRawValue: nil,
+                appleAvailability: .available
+            ),
+            .appleOnDevice
+        )
+        XCTAssertEqual(
+            AIRecognitionMethodSelection.initialMethod(
+                storedRawValue: nil,
+                appleAvailability: .unavailable("Not ready")
+            ),
+            .openAI
+        )
+        XCTAssertEqual(
+            AIRecognitionMethodSelection.initialMethod(
+                storedRawValue: AIRecognitionMethod.openAI.rawValue,
+                appleAvailability: .available
+            ),
+            .openAI
+        )
+    }
+
+    func testProvidersDeclareMethodSpecificBatchSizes() {
+        XCTAssertEqual(
+            OpenAIRecognitionProvider(keyStore: MemoryAPIKeyStore(key: "test-key")).maximumBatchSize,
+            25
+        )
+        XCTAssertEqual(
+            UnavailableAIRecognitionProvider(method: .appleOnDevice, reason: "Unavailable").maximumBatchSize,
+            1
+        )
+    }
+
+    func testLegacyRecognitionWithoutMethodDecodesAsOpenAI() throws {
+        let data = Data("""
+            {
+              "itemID": "item-1",
+              "suggestedName": "Smart speaker",
+              "category": "Audio",
+              "likelyPurpose": "Playing music",
+              "confidence": "medium",
+              "rationale": "Vendor evidence",
+              "limitations": "Exact model unknown"
+            }
+            """.utf8)
+
+        let recognition = try JSONDecoder().decode(DeviceAIRecognition.self, from: data)
+        XCTAssertEqual(recognition.method, .openAI)
+    }
+
     func testRecognizedNameReplacesOnlyUnknownDeviceFallback() throws {
         let recognition = DeviceAIRecognition(
             itemID: "item-1",

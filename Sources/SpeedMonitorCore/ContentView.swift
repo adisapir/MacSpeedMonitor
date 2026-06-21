@@ -979,6 +979,9 @@ struct NetworkInfoView: View {
                     .padding(.top, 8)
             }
         }
+        .onAppear {
+            monitor.refreshAIRecognitionAvailability()
+        }
         .onDisappear {
             monitor.cancelNetworkScan()
         }
@@ -1105,14 +1108,14 @@ struct NetworkInfoView: View {
                 Label("Cancel AI", systemImage: "xmark.circle")
             }
             .buttonStyle(.bordered)
-        } else if !monitor.hasOpenAIAPIKey {
+        } else if !monitor.selectedAIRecognitionAvailability.isAvailable {
             Button {
                 NotificationCenter.default.post(
                     name: .selectTabNotification,
                     object: ContentView.Tab.settings
                 )
             } label: {
-                Label("Configure AI", systemImage: "key.fill")
+                Label("Configure AI", systemImage: "gearshape.fill")
             }
             .buttonStyle(.bordered)
             .disabled(monitor.networkScanPhase == .scanning)
@@ -1157,13 +1160,13 @@ struct NetworkInfoView: View {
     }
 
     private func requestAIRecognition(for device: DiscoveredNetworkDevice?) {
-        monitor.refreshOpenAIAPIKeyAvailability()
-        guard monitor.hasOpenAIAPIKey else {
+        monitor.refreshAIRecognitionAvailability()
+        guard monitor.selectedAIRecognitionAvailability.isAvailable else {
             NotificationCenter.default.post(name: .selectTabNotification, object: ContentView.Tab.settings)
             return
         }
         pendingAIIdentity = device?.aiIdentity
-        if aiPrivacyAccepted {
+        if monitor.selectedAIRecognitionMethod == .appleOnDevice || aiPrivacyAccepted {
             performPendingAIRecognition()
         } else {
             showingAIPrivacyDisclosure = true
@@ -1332,7 +1335,7 @@ private struct NetworkDeviceRow: View {
             case .analyzing:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Analyzing redacted metadata with OpenAI...")
+                    Text("Analyzing device metadata...")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1352,7 +1355,7 @@ private struct NetworkDeviceRow: View {
                     .padding(.top, 6)
                 } label: {
                     Label(
-                        isUsingAISuggestedName ? "AI Insight" : insight.suggestedName,
+                        isUsingAISuggestedName ? insight.method.insightLabel : insight.suggestedName,
                         systemImage: "sparkles"
                     )
                         .font(.subheadline)
@@ -1440,6 +1443,15 @@ private struct NetworkDeviceRow: View {
 
     private var isUsingAISuggestedName: Bool {
         device.displayName == "Unknown Device" && resolvedDisplayName != device.displayName
+    }
+}
+
+private extension AIRecognitionMethod {
+    var insightLabel: String {
+        switch self {
+        case .appleOnDevice: return "On-Device AI Insight"
+        case .openAI: return "OpenAI Insight"
+        }
     }
 }
 
@@ -2212,67 +2224,106 @@ struct SettingsView: View {
 
                                 InfoButton(
                                     title: "Using AI Device Recognition",
-                                    introduction: "This feature needs an OpenAI API key from your own OpenAI Platform account. Create a key, copy it once, then save it here before testing the connection.",
+                                    introduction: "Choose private on-device recognition through Apple Intelligence or use OpenAI with your own API key.",
                                     items: [
-                                        HelpItem(term: "Create a key", explanation: "Open the API Keys page below, sign in to your OpenAI Platform account, and create a new secret key. Keep the key private and do not share or commit it to source control."),
-                                        HelpItem(term: "Secure local storage", explanation: "The app stores the key in your macOS Keychain, not in its settings or device-history files. The Keychain item is restricted to this Mac and is used only to authenticate requests sent directly to OpenAI."),
-                                        HelpItem(term: "Limited device data", explanation: "Recognition sends only redacted metadata such as hostname, vendor, role flags, and response time. IP and MAC addresses are never sent to OpenAI."),
-                                        HelpItem(term: "Your API account", explanation: "API access and usage are managed through your OpenAI Platform account and may be billed separately from a ChatGPT subscription. You can remove the saved key here or revoke it from OpenAI at any time."),
+                                        HelpItem(term: "Apple On-Device", explanation: "Runs privately and offline on this Mac with no API key. It requires macOS 26, a compatible Mac, Apple Intelligence enabled, and its model ready."),
+                                        HelpItem(term: "OpenAI API", explanation: "Sends redacted metadata directly to OpenAI using your own API key. API usage may be billed separately from a ChatGPT subscription."),
+                                        HelpItem(term: "Limited device data", explanation: "Recognition uses hostname, vendor, role flags, and response time. IP and MAC addresses are never sent to OpenAI or included in an on-device prompt."),
+                                        HelpItem(term: "Saved results", explanation: "Suggestions are unverified and stored locally by MAC address so later scans can restore them."),
                                     ]
                                 )
                             }
 
-                            Text("Use your own OpenAI API key to get cautious AI suggestions for unknown network devices. The key is stored in macOS Keychain.")
+                            Picker("Method", selection: Binding(
+                                get: { monitor.selectedAIRecognitionMethod },
+                                set: { monitor.setAIRecognitionMethod($0) }
+                            )) {
+                                ForEach(AIRecognitionMethod.allCases) { method in
+                                    Text(method.displayName)
+                                        .tag(method)
+                                        .disabled(
+                                            method == .appleOnDevice
+                                                && !monitor.availability(for: method).isAvailable
+                                        )
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .disabled(monitor.isAIRecognitionRunning)
+
+                            if monitor.selectedAIRecognitionMethod == .appleOnDevice {
+                                Label(
+                                    monitor.selectedAIRecognitionAvailability.isAvailable
+                                        ? "Apple Intelligence is ready. Recognition stays on this Mac."
+                                        : monitor.selectedAIRecognitionAvailability.message,
+                                    systemImage: monitor.selectedAIRecognitionAvailability.isAvailable
+                                        ? "checkmark.shield.fill"
+                                        : "exclamationmark.triangle.fill"
+                                )
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(
+                                    monitor.selectedAIRecognitionAvailability.isAvailable
+                                        ? Color.green
+                                        : Color.orange
+                                )
 
-                            Link(destination: URL(string: "https://platform.openai.com/api-keys")!) {
-                                Label("Create an OpenAI API Key", systemImage: "arrow.up.right.square")
-                            }
-                            .font(.subheadline)
-
-                            SecureField(
-                                monitor.hasOpenAIAPIKey ? "Enter a replacement key" : "OpenAI API key",
-                                text: $openAIKeyInput
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .privacySensitive()
-
-                            HStack {
-                                Button(monitor.hasOpenAIAPIKey ? "Replace Key" : "Save Key") {
-                                    saveOpenAIKey()
-                                }
-                                .disabled(openAIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                                Button("Test Connection") {
-                                    testOpenAIConnection()
-                                }
-                                .disabled(!monitor.hasOpenAIAPIKey || isTestingOpenAI)
-
-                                if monitor.hasOpenAIAPIKey {
-                                    Button("Remove Key", role: .destructive) {
-                                        removeOpenAIKey()
-                                    }
-                                }
-
-                                if isTestingOpenAI { ProgressView().controlSize(.small) }
-                            }
-
-                            Label(
-                                monitor.hasOpenAIAPIKey ? "API key stored in Keychain" : "No API key configured",
-                                systemImage: monitor.hasOpenAIAPIKey ? "checkmark.shield.fill" : "key"
-                            )
-                            .font(.caption)
-                            .foregroundStyle(monitor.hasOpenAIAPIKey ? .green : .secondary)
-
-                            if let openAIStatusMessage {
-                                Text(openAIStatusMessage)
+                                Text("No API key or internet connection is required.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Use your own OpenAI API key for cautious device suggestions. The key is stored in macOS Keychain.")
                                     .font(.caption)
-                                    .foregroundStyle(openAIStatusIsError ? .orange : .green)
+                                    .foregroundStyle(.secondary)
+
+                                Link(destination: URL(string: "https://platform.openai.com/api-keys")!) {
+                                    Label("Create an OpenAI API Key", systemImage: "arrow.up.right.square")
+                                }
+                                .font(.subheadline)
+
+                                SecureField(
+                                    monitor.hasOpenAIAPIKey ? "Enter a replacement key" : "OpenAI API key",
+                                    text: $openAIKeyInput
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .privacySensitive()
+
+                                HStack {
+                                    Button(monitor.hasOpenAIAPIKey ? "Replace Key" : "Save Key") {
+                                        saveOpenAIKey()
+                                    }
+                                    .disabled(openAIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                                    Button("Test Connection") {
+                                        testOpenAIConnection()
+                                    }
+                                    .disabled(!monitor.hasOpenAIAPIKey || isTestingOpenAI)
+
+                                    if monitor.hasOpenAIAPIKey {
+                                        Button("Remove Key", role: .destructive) {
+                                            removeOpenAIKey()
+                                        }
+                                    }
+
+                                    if isTestingOpenAI { ProgressView().controlSize(.small) }
+                                }
+
+                                Label(
+                                    monitor.hasOpenAIAPIKey ? "API key stored in Keychain" : "No API key configured",
+                                    systemImage: monitor.hasOpenAIAPIKey ? "checkmark.shield.fill" : "key"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(monitor.hasOpenAIAPIKey ? .green : .secondary)
+
+                                if let openAIStatusMessage {
+                                    Text(openAIStatusMessage)
+                                        .font(.caption)
+                                        .foregroundStyle(openAIStatusIsError ? .orange : .green)
+                                }
                             }
+                        }
+                    }
 
-                            Divider()
-
+                    GlassCard(glowColor: .cyan) {
+                        VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Label(
                                     "\(monitor.deviceHistoryRecordCount) saved device \(monitor.deviceHistoryRecordCount == 1 ? "record" : "records")",
@@ -2302,7 +2353,7 @@ struct SettingsView: View {
                 .padding(.horizontal)
             }
         }
-        .onAppear { monitor.refreshOpenAIAPIKeyAvailability() }
+        .onAppear { monitor.refreshAIRecognitionAvailability() }
         .confirmationDialog(
             "Clear all saved device history?",
             isPresented: $showingClearHistoryConfirmation
