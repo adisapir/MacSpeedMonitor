@@ -12,12 +12,28 @@ APP_NAME="${APP_NAME:-MacSpeedMonitor}"
 VOLUME_NAME="${VOLUME_NAME:-MacSpeedMonitor}"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+INCLUDE_WIDGET="${INCLUDE_WIDGET:-0}"
+MAIN_ENTITLEMENTS="$REPO_ROOT/Sources/MacSpeedMonitorApp/MacSpeedMonitor.entitlements"
+
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+    echo "note: using ad-hoc signing; macOS privacy grants may be requested again after rebuilding the app"
+fi
 
 for command in xcodebuild ditto codesign hdiutil shasum xattr; do
     command -v "$command" >/dev/null 2>&1 || {
         echo "error: required command not found: $command" >&2
         exit 1
     }
+done
+
+for entitlement in \
+    com.apple.security.network.client \
+    com.apple.security.network.server \
+    com.apple.security.personal-information.location; do
+    if [[ "$(/usr/libexec/PlistBuddy -c "Print :$entitlement" "$MAIN_ENTITLEMENTS" 2>/dev/null)" != "true" ]]; then
+        echo "error: required distribution entitlement is missing or disabled: $entitlement" >&2
+        exit 1
+    fi
 done
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/MacSpeedMonitor-dist.XXXXXX")"
@@ -74,14 +90,20 @@ fi
 
 WIDGET_EXTENSION="$SIGNED_APP/Contents/PlugIns/WiFiPulseWidgetExtension.appex"
 if [[ -d "$WIDGET_EXTENSION" ]]; then
-    sign_target \
-        "$WIDGET_EXTENSION" \
-        --entitlements "$REPO_ROOT/WiFiPulseWidget/WiFiPulseWidget.entitlements"
+    if [[ "$INCLUDE_WIDGET" == "1" ]]; then
+        sign_target \
+            "$WIDGET_EXTENSION" \
+            --entitlements "$REPO_ROOT/WiFiPulseWidget/WiFiPulseWidget.entitlements"
+    else
+        echo "Excluding the disconnected widget from distribution output..."
+        rm -rf "$WIDGET_EXTENSION"
+        rmdir "$SIGNED_APP/Contents/PlugIns" 2>/dev/null || true
+    fi
 fi
 
 sign_target \
     "$SIGNED_APP" \
-    --entitlements "$REPO_ROOT/Sources/MacSpeedMonitorApp/MacSpeedMonitor.entitlements"
+    --entitlements "$MAIN_ENTITLEMENTS"
 
 codesign --verify --deep --strict --verbose=2 "$SIGNED_APP"
 

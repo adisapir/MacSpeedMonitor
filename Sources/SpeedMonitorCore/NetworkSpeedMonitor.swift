@@ -571,6 +571,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
         let routerIPAddress = defaultRouterIPAddress()
 
         var mergedNetworks: [String: WiFiNetworkInfo] = [:]
+        var lastScanError: Error?
 
         for interface in interfaces {
             do {
@@ -606,6 +607,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
                     mergedNetworks[key] = info
                 }
             } catch {
+                lastScanError = error
                 Self.logger.error("Wi-Fi scan failed on \(interface.interfaceName ?? "unknown", privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -618,6 +620,9 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
 
         if networks.isEmpty {
+            if let lastScanError {
+                return .failure(.scanFailed(lastScanError.localizedDescription))
+            }
             return .failure(.noNetworksFound)
         }
 
@@ -1156,6 +1161,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
 private enum WiFiScanError: LocalizedError {
     case noWiFiInterface
     case noNetworksFound
+    case scanFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -1163,6 +1169,8 @@ private enum WiFiScanError: LocalizedError {
             return "No Wi-Fi interface is available."
         case .noNetworksFound:
             return "No nearby Wi-Fi networks were found."
+        case .scanFailed(let message):
+            return "Wi-Fi scanning failed: \(message)"
         }
     }
 }

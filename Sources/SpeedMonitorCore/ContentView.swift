@@ -1493,6 +1493,7 @@ private extension AIRecognitionMethod {
 struct WiFiScanView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
     @StateObject private var locationPermission = LocationPermissionManager()
+    @State private var authorizationRetryTask: Task<Void, Never>?
 
     var body: some View {
         ScrollView {
@@ -1593,17 +1594,19 @@ struct WiFiScanView: View {
         .onAppear {
             locationPermission.requestAuthorizationIfNeeded()
             if locationPermission.canReadWiFiNames {
-                monitor.startWiFiScanning()
+                startWiFiScanningAfterAuthorization()
             }
         }
         .onChange(of: locationPermission.canReadWiFiNames) { _, canReadWiFiNames in
             if canReadWiFiNames {
-                monitor.startWiFiScanning()
+                startWiFiScanningAfterAuthorization()
             } else {
+                authorizationRetryTask?.cancel()
                 monitor.stopWiFiScanning()
             }
         }
         .onDisappear {
+            authorizationRetryTask?.cancel()
             monitor.stopWiFiScanning()
         }
     }
@@ -1618,6 +1621,19 @@ struct WiFiScanView: View {
         }
 
         return "No scan results yet"
+    }
+
+    private func startWiFiScanningAfterAuthorization() {
+        monitor.startWiFiScanning()
+        authorizationRetryTask?.cancel()
+        authorizationRetryTask = Task { @MainActor in
+            // CoreWLAN can briefly retain the pre-authorization privacy state after
+            // the first Location Services prompt completes. Retry once after macOS
+            // has had time to propagate the new grant.
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            monitor.refreshWiFiScan()
+        }
     }
 
     private func wifiLegendItem(label: String, color: Color) -> some View {
