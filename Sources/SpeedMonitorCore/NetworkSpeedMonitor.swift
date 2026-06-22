@@ -1093,13 +1093,21 @@ public final class NetworkSpeedMonitor: ObservableObject {
         
         let durationSeconds = UserDefaults.standard.integer(forKey: "historyDurationSeconds")
         let limit = durationSeconds == 0 ? 60 : durationSeconds
-        let historyLimit = max(5, Int(Double(limit) / samplingInterval))
-        
         let point = SpeedHistoryPoint(timestamp: current.timestamp, downloadSpeed: downloadBytesPerSecond, uploadSpeed: uploadBytesPerSecond)
-        speedHistory.append(point)
-        while speedHistory.count > historyLimit {
-            speedHistory.removeFirst()
-        }
+        speedHistory = Self.historyByAppending(
+            point,
+            to: speedHistory,
+            duration: TimeInterval(limit)
+        )
+    }
+
+    static func historyByAppending(
+        _ point: SpeedHistoryPoint,
+        to history: [SpeedHistoryPoint],
+        duration: TimeInterval
+    ) -> [SpeedHistoryPoint] {
+        let cutoff = point.timestamp.addingTimeInterval(-max(1, duration))
+        return (history + [point]).filter { $0.timestamp >= cutoff }
     }
 
     private func recordFailure(_ error: SnapshotError) {

@@ -19,7 +19,7 @@ if [[ "$SIGN_IDENTITY" == "-" ]]; then
     echo "note: using ad-hoc signing; macOS privacy grants may be requested again after rebuilding the app"
 fi
 
-for command in xcodebuild ditto codesign hdiutil shasum xattr; do
+for command in xcodebuild ditto codesign hdiutil shasum xattr swift sips iconutil; do
     command -v "$command" >/dev/null 2>&1 || {
         echo "error: required command not found: $command" >&2
         exit 1
@@ -67,6 +67,21 @@ mkdir -p "$DIST_DIR"
 SIGNED_APP="$WORK_DIR/$APP_NAME.app"
 ditto --noextattr "$ARCHIVED_APP" "$SIGNED_APP"
 xattr -cr "$SIGNED_APP"
+
+echo "Generating the bundled application icon..."
+ICON_PNG="$WORK_DIR/AppIcon-1024.png"
+ICONSET="$WORK_DIR/AppIcon.iconset"
+ICON_FILE="$SIGNED_APP/Contents/Resources/AppIcon.icns"
+swift "$SCRIPT_DIR/generate-app-icon.swift" "$ICON_PNG"
+mkdir -p "$ICONSET" "$SIGNED_APP/Contents/Resources"
+for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    double_size=$((size * 2))
+    sips -z "$double_size" "$double_size" "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$ICON_FILE"
+/usr/libexec/PlistBuddy -c 'Delete :CFBundleIconFile' "$SIGNED_APP/Contents/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string AppIcon' "$SIGNED_APP/Contents/Info.plist"
 
 sign_target() {
     local target="$1"
