@@ -1,3 +1,6 @@
+2026-06-23 -
+	Fixed throughput chart history expanding beyond the configured duration after long sampling gaps.
+	Added a consistent bundled application icon to standalone and DMG distribution builds.
 2026-06-21 -
 	Added persistent local device and AI insight history matched by MAC address.
 	Replaced Unknown Device labels with recognized AI-suggested names.
