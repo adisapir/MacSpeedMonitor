@@ -9,6 +9,7 @@ WiFiPulse/WiFiPulseApp.swift
 
 # Distribution artifacts
 # dist/
+dist/MacSpeedMonitor.app/*
 
 # Secrets and signing materials
 .env
@@ -72,3 +73,4 @@ id_ed25519.*
 *.ovpn
 *.gpg
 *.asc
+
