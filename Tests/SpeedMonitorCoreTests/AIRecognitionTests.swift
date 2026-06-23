@@ -28,6 +28,9 @@ final class AIRecognitionTests: XCTestCase {
             XCTAssertFalse(text.contains("AA:BB:CC:DD:EE:FF"))
             XCTAssertTrue(text.contains("living-room-speaker.local"))
             XCTAssertTrue(text.contains("Example Vendor"))
+            XCTAssertTrue(text.contains("\\\"openPorts\\\""))
+            XCTAssertTrue(text.contains("\\\"port\\\":22"))
+            XCTAssertTrue(text.contains("SSH"))
             XCTAssertTrue(text.contains("\"store\":false"))
             XCTAssertTrue(text.contains("json_schema"))
             return Self.response(
@@ -39,7 +42,11 @@ final class AIRecognitionTests: XCTestCase {
         }
 
         let result = try await provider.recognize([
-            AIRecognitionInput(itemID: "item-1", device: device),
+            AIRecognitionInput(
+                itemID: "item-1",
+                device: device,
+                openPorts: [OpenPort(port: 22, serviceName: "SSH")]
+            ),
         ])
         XCTAssertEqual(result.count, 1)
         XCTAssertEqual(result[0].confidence, .medium)
@@ -85,6 +92,35 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(result.count, 1)
         XCTAssertEqual(result[0].category, "Audio")
         XCTAssertEqual(result[0].method, .googleGemini)
+    }
+
+    func testRecognitionInputIncludesCompletedPortScanResultsWhenProvided() throws {
+        let device = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.50.44",
+            hostname: "living-room-speaker.local",
+            macAddress: "AA:BB:CC:DD:EE:FF",
+            vendorName: "Example Vendor",
+            responseTimeMilliseconds: 3.27
+        ))
+
+        let input = AIRecognitionInput(
+            itemID: "item-1",
+            device: device,
+            openPorts: [
+                OpenPort(port: 22, serviceName: "SSH"),
+                OpenPort(port: 8080, serviceName: "HTTP Alt"),
+            ]
+        )
+        let data = try JSONEncoder().encode(input)
+        let text = String(decoding: data, as: UTF8.self)
+
+        XCTAssertFalse(text.contains("192.168.50.44"))
+        XCTAssertFalse(text.contains("AA:BB:CC:DD:EE:FF"))
+        XCTAssertTrue(text.contains("\"openPorts\""))
+        XCTAssertTrue(text.contains("\"port\":22"))
+        XCTAssertTrue(text.contains("\"serviceName\":\"SSH\""))
+        XCTAssertTrue(text.contains("\"port\":8080"))
+        XCTAssertTrue(text.contains("\"serviceName\":\"HTTP Alt\""))
     }
 
     func testDebugPromptsShowAgentAndPreserveRedactedDeviceMetadata() throws {
@@ -305,6 +341,10 @@ final class AIRecognitionTests: XCTestCase {
 
     func testRecognizedDeviceTypeChangesUnknownDeviceIcon() throws {
         let unknownDevice = try XCTUnwrap(DiscoveredNetworkDevice(ipv4Address: "192.168.1.20"))
+        let namedDevice = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.21",
+            hostname: "living-room-speaker.local"
+        ))
         let recognition = DeviceAIRecognition(
             itemID: "item-1",
             suggestedName: "Living Room Speaker",
@@ -320,9 +360,17 @@ final class AIRecognitionTests: XCTestCase {
             unknownDevice.systemImageName(aiState: .recognized(recognition)),
             "hifispeaker.fill"
         )
+        XCTAssertEqual(
+            namedDevice.systemImageName(aiState: .recognized(recognition)),
+            "hifispeaker.fill"
+        )
+        XCTAssertEqual(
+            recognition.withResolvedSystemImageName().systemImageName,
+            "hifispeaker.fill"
+        )
     }
 
-    func testDeviceIconKeepsKnownRolesAndFallsBackForUnrecognizedCategories() throws {
+    func testDeviceIconRequiresMediumOrHighConfidenceAndKnownCategory() throws {
         let router = try XCTUnwrap(DiscoveredNetworkDevice(
             ipv4Address: "192.168.1.1",
             isRouter: true
@@ -334,8 +382,8 @@ final class AIRecognitionTests: XCTestCase {
         let unknownDevice = try XCTUnwrap(DiscoveredNetworkDevice(ipv4Address: "192.168.1.3"))
         let recognition = DeviceAIRecognition(
             itemID: "item-1",
-            suggestedName: "Specialized device",
-            category: "Unclassified",
+            suggestedName: "Likely camera",
+            category: "Camera",
             likelyPurpose: "Unknown",
             confidence: .low,
             rationale: "Limited evidence",
@@ -345,6 +393,19 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(router.systemImageName(aiState: .recognized(recognition)), "wifi.router.fill")
         XCTAssertEqual(localDevice.systemImageName(aiState: .recognized(recognition)), "desktopcomputer")
         XCTAssertEqual(unknownDevice.systemImageName(aiState: .recognized(recognition)), "network")
+        XCTAssertNil(recognition.withResolvedSystemImageName().systemImageName)
+
+        let unrecognizedCategory = DeviceAIRecognition(
+            itemID: "item-1",
+            suggestedName: "Specialized device",
+            category: "Unclassified",
+            likelyPurpose: "Unknown",
+            confidence: .medium,
+            rationale: "Limited evidence",
+            limitations: "Unable to determine a type"
+        )
+        XCTAssertEqual(unknownDevice.systemImageName(aiState: .recognized(unrecognizedCategory)), "network")
+        XCTAssertNil(unrecognizedCategory.withResolvedSystemImageName().systemImageName)
     }
 
     func testKeychainStoreSavesReplacesAndRemovesKey() throws {
@@ -396,9 +457,10 @@ final class AIRecognitionTests: XCTestCase {
             rationale: "Vendor evidence",
             limitations: "Exact model unknown"
         )
+        let resolvedRecognition = recognition.withResolvedSystemImageName()
         let record = try XCTUnwrap(PersistedDeviceRecord(
             device: originalDevice,
-            aiRecognition: recognition
+            aiRecognition: resolvedRecognition
         ))
 
         try store.save([record.macAddress: record])
@@ -408,6 +470,7 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(loadedRecord.hostname, record.hostname)
         XCTAssertEqual(loadedRecord.vendorName, record.vendorName)
         XCTAssertEqual(loadedRecord.aiRecognition, record.aiRecognition)
+        XCTAssertEqual(loadedRecord.aiRecognition?.systemImageName, "tv.fill")
         XCTAssertEqual(
             loadedRecord.lastSeenAt.timeIntervalSince(record.lastSeenAt),
             0,
@@ -422,7 +485,7 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(enriched.ipv4Address, "192.168.1.87")
         XCTAssertEqual(enriched.hostname, "living-room-device.local")
         XCTAssertEqual(enriched.vendorName, "Example Vendor")
-        XCTAssertEqual(loaded[record.macAddress]?.aiRecognition, recognition)
+        XCTAssertEqual(loaded[record.macAddress]?.aiRecognition, resolvedRecognition)
 
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
         let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue

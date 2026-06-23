@@ -383,6 +383,13 @@ public final class NetworkSpeedMonitor: ObservableObject {
         startAIRecognition(for: [device], unknownOnly: false)
     }
 
+    private func completedOpenPorts(for device: DiscoveredNetworkDevice) -> [OpenPort]? {
+        guard case .completed(let ports) = portScanStates[device.ipv4Address] else {
+            return nil
+        }
+        return ports
+    }
+
     public func cancelAIRecognition() {
         guard isAIRecognitionRunning else { return }
         aiRecognitionTask?.cancel()
@@ -438,7 +445,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
                 let inputs = batch.enumerated().map { offset, device in
                     AIRecognitionInput(
                         itemID: "item-\(self.aiRecognitionCompletedCount + offset + 1)",
-                        device: device
+                        device: device,
+                        openPorts: self.completedOpenPorts(for: device)
                     )
                 }
 
@@ -455,7 +463,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
                         if recognition.suggestedName.caseInsensitiveCompare("Unable to recognize") == .orderedSame {
                             self.aiRecognitionStates[identity] = .insufficient(recognition.limitations)
                         } else {
-                            self.aiRecognitionStates[identity] = .recognized(recognition)
+                            self.aiRecognitionStates[identity] = .recognized(recognition.withResolvedSystemImageName())
                         }
                     }
                     self.aiRecognitionCompletedCount += batch.count

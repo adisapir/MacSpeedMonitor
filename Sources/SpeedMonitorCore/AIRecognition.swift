@@ -99,6 +99,7 @@ public struct DeviceAIRecognition: Codable, Sendable, Hashable {
     public let rationale: String
     public let limitations: String
     public let method: AIRecognitionMethod
+    public let systemImageName: String?
 
     public init(
         itemID: String,
@@ -108,7 +109,8 @@ public struct DeviceAIRecognition: Codable, Sendable, Hashable {
         confidence: AIRecognitionConfidence,
         rationale: String,
         limitations: String,
-        method: AIRecognitionMethod = .openAI
+        method: AIRecognitionMethod = .openAI,
+        systemImageName: String? = nil
     ) {
         self.itemID = itemID
         self.suggestedName = suggestedName
@@ -118,10 +120,11 @@ public struct DeviceAIRecognition: Codable, Sendable, Hashable {
         self.rationale = rationale
         self.limitations = limitations
         self.method = method
+        self.systemImageName = systemImageName
     }
 
     private enum CodingKeys: String, CodingKey {
-        case itemID, suggestedName, category, likelyPurpose, confidence, rationale, limitations, method
+        case itemID, suggestedName, category, likelyPurpose, confidence, rationale, limitations, method, systemImageName
     }
 
     public init(from decoder: Decoder) throws {
@@ -134,6 +137,7 @@ public struct DeviceAIRecognition: Codable, Sendable, Hashable {
         rationale = try container.decode(String.self, forKey: .rationale)
         limitations = try container.decode(String.self, forKey: .limitations)
         method = try container.decodeIfPresent(AIRecognitionMethod.self, forKey: .method) ?? .openAI
+        systemImageName = try container.decodeIfPresent(String.self, forKey: .systemImageName)
     }
 }
 
@@ -160,15 +164,48 @@ extension DiscoveredNetworkDevice {
         if isRouter { return "wifi.router.fill" }
         if isLocalDevice { return "desktopcomputer" }
 
-        guard displayName == "Unknown Device",
-              case .recognized(let recognition) = aiState else {
+        guard case .recognized(let recognition) = aiState,
+              let systemImageName = recognition.resolvedSystemImageName else {
             return "network"
         }
 
+        return systemImageName
+    }
+}
+
+extension DeviceAIRecognition {
+    var resolvedSystemImageName: String? {
+        guard confidence.supportsDeviceIcon else { return nil }
+        return systemImageName ?? Self.systemImageName(
+            category: category,
+            suggestedName: suggestedName,
+            likelyPurpose: likelyPurpose
+        )
+    }
+
+    func withResolvedSystemImageName() -> DeviceAIRecognition {
+        DeviceAIRecognition(
+            itemID: itemID,
+            suggestedName: suggestedName,
+            category: category,
+            likelyPurpose: likelyPurpose,
+            confidence: confidence,
+            rationale: rationale,
+            limitations: limitations,
+            method: method,
+            systemImageName: resolvedSystemImageName
+        )
+    }
+
+    private static func systemImageName(
+        category: String,
+        suggestedName: String,
+        likelyPurpose: String
+    ) -> String? {
         let description = [
-            recognition.category,
-            recognition.suggestedName,
-            recognition.likelyPurpose,
+            category,
+            suggestedName,
+            likelyPurpose,
         ]
         .joined(separator: " ")
         .lowercased()
@@ -195,7 +232,18 @@ extension DiscoveredNetworkDevice {
 
         return mappings.first { keywords, _ in
             keywords.contains { description.contains($0) }
-        }?.1 ?? "network"
+        }?.1
+    }
+}
+
+extension AIRecognitionConfidence {
+    var supportsDeviceIcon: Bool {
+        switch self {
+        case .medium, .high:
+            return true
+        case .low:
+            return false
+        }
     }
 }
 
@@ -206,8 +254,13 @@ struct AIRecognitionInput: Codable, Sendable, Equatable {
     let isRouter: Bool
     let isLocalDevice: Bool
     let responseTimeMilliseconds: Double?
+    let openPorts: [AIRecognitionOpenPort]?
 
-    init(itemID: String, device: DiscoveredNetworkDevice) {
+    init(
+        itemID: String,
+        device: DiscoveredNetworkDevice,
+        openPorts: [OpenPort]? = nil
+    ) {
         self.itemID = itemID
         self.hostname = device.hostname
         self.vendorName = device.vendorName
@@ -216,6 +269,17 @@ struct AIRecognitionInput: Codable, Sendable, Equatable {
         self.responseTimeMilliseconds = device.responseTimeMilliseconds.map {
             ($0 * 10).rounded() / 10
         }
+        self.openPorts = openPorts?.map(AIRecognitionOpenPort.init)
+    }
+}
+
+struct AIRecognitionOpenPort: Codable, Sendable, Equatable {
+    let port: UInt16
+    let serviceName: String
+
+    init(openPort: OpenPort) {
+        self.port = openPort.port
+        self.serviceName = openPort.serviceName
     }
 }
 
