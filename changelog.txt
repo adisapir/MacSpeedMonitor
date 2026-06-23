@@ -1,4 +1,6 @@
 2026-06-23 -
+	Added local network port scanning and included completed port results in AI recognition requests.
+	Improved AI-recognized device icons and persisted recognized icons by MAC address.
 	Fixed throughput chart history expanding beyond the configured duration after long sampling gaps.
 	Added a consistent bundled application icon to standalone and DMG distribution builds.
 2026-06-21 -
