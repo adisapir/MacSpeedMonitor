@@ -1,11 +1,11 @@
 New:
-- Publish to (AppStore?) public as a package
+- fix version display
+- Embed changelog in About (change to .md?)
 - Support update mechanism
 - Homebrew support
 - Website (generic)
     - New version distribution workflow (git actions a valid option?)
     - Rebuild doccolabs.com -> it's useless and legacy
-- Widget support
 - Menu bar D/U support
 
 Fix:
@@ -15,3 +15,7 @@ Fix:
 Done:
 - Radar animation sync
 - Add max values
+
+Won't do (for now):
+- Publish to (AppStore?) public as a package
+- Widget support

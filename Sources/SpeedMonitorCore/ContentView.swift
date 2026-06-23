@@ -33,6 +33,35 @@ public enum SpeedUnit: String, CaseIterable, Identifiable {
     public var id: String { self.rawValue }
 }
 
+public enum ThroughputFormatter {
+    public static func speed(_ bytesPerSecond: Double, unit: SpeedUnit) -> String {
+        guard bytesPerSecond.isFinite, bytesPerSecond >= 0 else {
+            return unit == .bytes ? "0 KB/s" : "0 Kbps"
+        }
+
+        if unit == .bits {
+            let bitsPerSecond = bytesPerSecond * 8
+            if bitsPerSecond >= 1_000_000_000 {
+                return String(format: "%.2f Gbps", bitsPerSecond / 1_000_000_000.0)
+            } else if bitsPerSecond >= 1_000_000 {
+                return String(format: "%.2f Mbps", bitsPerSecond / 1_000_000.0)
+            } else if bitsPerSecond >= 1000 {
+                return String(format: "%.2f Kbps", bitsPerSecond / 1000.0)
+            } else {
+                return String(format: "%.0f bps", bitsPerSecond)
+            }
+        }
+
+        let clampedValue = min(bytesPerSecond, Double(Int64.max))
+        let byteFormatter = ByteCountFormatter()
+        byteFormatter.countStyle = .binary
+        byteFormatter.allowedUnits = [.useKB, .useMB, .useGB]
+        byteFormatter.includesUnit = true
+        byteFormatter.isAdaptive = true
+        return "\(byteFormatter.string(fromByteCount: Int64(clampedValue)))/s"
+    }
+}
+
 // MARK: - Visual Effect View for macOS Translucency
 
 struct VisualEffectView: NSViewRepresentable {
@@ -774,25 +803,7 @@ struct DashboardView: View {
     // MARK: - Formatters
     
     private func formatSpeed(_ bytesPerSecond: Double) -> String {
-        guard bytesPerSecond.isFinite, bytesPerSecond >= 0 else {
-            return speedUnit == .bytes ? "0 KB/s" : "0 Kbps"
-        }
-        
-        if speedUnit == .bits {
-            let bitsPerSecond = bytesPerSecond * 8
-            if bitsPerSecond >= 1_000_000_000 {
-                return String(format: "%.2f Gbps", bitsPerSecond / 1_000_000_000.0)
-            } else if bitsPerSecond >= 1_000_000 {
-                return String(format: "%.2f Mbps", bitsPerSecond / 1_000_000.0)
-            } else if bitsPerSecond >= 1000 {
-                return String(format: "%.2f Kbps", bitsPerSecond / 1000.0)
-            } else {
-                return String(format: "%.0f bps", bitsPerSecond)
-            }
-        } else {
-            let clampedValue = min(bytesPerSecond, Double(Int64.max))
-            return "\(Self.speedFormatter.string(fromByteCount: Int64(clampedValue)))/s"
-        }
+        ThroughputFormatter.speed(bytesPerSecond, unit: speedUnit)
     }
 
     private func formatBytes(_ bytes: UInt64) -> String {
@@ -809,15 +820,6 @@ struct DashboardView: View {
         }
         return String(format: "%02d:%02d", minutes, seconds)
     }
-
-    private static let speedFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB, .useGB]
-        formatter.countStyle = .binary
-        formatter.includesUnit = true
-        formatter.isAdaptive = true
-        return formatter
-    }()
 
     private static let totalFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
@@ -2380,6 +2382,11 @@ private func bandColor(_ band: WiFiNetworkInfo.Band) -> Color {
 struct AboutView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sparklesAreVisible = false
+    @State private var isShowingChangeLog = false
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+    }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -2440,7 +2447,7 @@ struct AboutView: View {
                     .font(.title)
                     .fontWeight(.bold)
                 
-                Text("Version 1.1.0")
+                Text("Version \(appVersion)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -2456,12 +2463,22 @@ struct AboutView: View {
                 .padding(.horizontal, 40)
             
             VStack(spacing: 10) {
+                Button {
+                    isShowingChangeLog = true
+                } label: {
+                    Label("View Change Log", systemImage: "doc.text")
+                }
+                .buttonStyle(.bordered)
+
                 Text("Created by Adi Sapir (github.com/adisapir)")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
             
             Spacer()
+        }
+        .sheet(isPresented: $isShowingChangeLog) {
+            ChangeLogView()
         }
     }
 
@@ -2481,12 +2498,70 @@ struct AboutView: View {
     }
 }
 
+private struct ChangeLogView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private let content = ChangeLogDocument.load()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Change Log")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+
+            Divider()
+
+            ScrollView {
+                Text(content.attributedText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding()
+            }
+        }
+        .frame(minWidth: 520, minHeight: 560)
+    }
+}
+
+private struct ChangeLogDocument {
+    let attributedText: AttributedString
+
+    static func load() -> ChangeLogDocument {
+        let markdown = bundledMarkdown ?? "## Change Log\n\n- No change log is available."
+        let attributed = (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
+        return ChangeLogDocument(attributedText: attributed)
+    }
+
+    private static var bundledMarkdown: String? {
+        guard let url = resourceURL else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    private static var resourceURL: URL? {
+        #if SWIFT_PACKAGE
+        Bundle.module.url(forResource: "CHANGELOG", withExtension: "md")
+        #else
+        Bundle(for: ContentViewBundleToken.self).url(forResource: "CHANGELOG", withExtension: "md")
+        #endif
+    }
+}
+
+private final class ContentViewBundleToken {}
+
 // MARK: - Settings View
 
 struct SettingsView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
     @AppStorage("appTheme") private var appTheme: AppTheme = .system
     @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .bytes
+    @AppStorage("showThroughputInMenuBar") private var showThroughputInMenuBar = false
     @AppStorage("historyDurationSeconds") private var historyDurationSeconds: Int = 60
     @State private var openAIKeyInput = ""
     @State private var openAIStatusMessage: String?
@@ -2548,6 +2623,19 @@ struct SettingsView: View {
                             .pickerStyle(.segmented)
                             
                             Text("Bytes/s is standard for transfers, while Bits/s (Mbps) matches internet provider speeds.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    GlassCard(glowColor: .cyan) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Toggle(isOn: $showThroughputInMenuBar) {
+                                Label("Show Throughput in Menu Bar", systemImage: "menubar.rectangle")
+                                    .font(.headline)
+                                    .foregroundStyle(.cyan)
+                            }
+                            Text("Shows upload and download speed in the menu bar.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

@@ -134,6 +134,8 @@ struct MacSpeedMonitorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var monitor = NetworkSpeedMonitor()
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .bytes
+    @AppStorage("showThroughputInMenuBar") private var showThroughputInMenuBar = false
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -152,6 +154,13 @@ struct MacSpeedMonitorApp: App {
                     NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
                     if scenePhase == .active {
                         monitor.startMonitoring()
+                    }
+                }
+                .onChange(of: showThroughputInMenuBar) { _, isEnabled in
+                    if isEnabled {
+                        monitor.startMonitoring()
+                    } else if scenePhase != .active {
+                        monitor.stopMonitoring()
                     }
                 }
         }
@@ -175,12 +184,40 @@ struct MacSpeedMonitorApp: App {
                 monitor.startMonitoring()
             case .inactive, .background:
                 AppIconProvider.applyIcon()
-                monitor.stopMonitoring()
+                if !showThroughputInMenuBar {
+                    monitor.stopMonitoring()
+                }
             @unknown default:
                 AppIconProvider.applyIcon()
-                monitor.stopMonitoring()
+                if !showThroughputInMenuBar {
+                    monitor.stopMonitoring()
+                }
             }
         }
         .windowResizability(.contentSize)
+
+        MenuBarExtra(isInserted: $showThroughputInMenuBar) {
+            Button("Open MacSpeedMonitor") {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
+            }
+
+            Divider()
+
+            Text("Upload \(formattedUploadSpeed)")
+            Text("Download \(formattedDownloadSpeed)")
+        } label: {
+            Text("↑ \(formattedUploadSpeed) ↓ \(formattedDownloadSpeed)")
+                .monospacedDigit()
+        }
+        .menuBarExtraStyle(.menu)
+    }
+
+    private var formattedUploadSpeed: String {
+        ThroughputFormatter.speed(monitor.uploadBytesPerSecond, unit: speedUnit)
+    }
+
+    private var formattedDownloadSpeed: String {
+        ThroughputFormatter.speed(monitor.downloadBytesPerSecond, unit: speedUnit)
     }
 }

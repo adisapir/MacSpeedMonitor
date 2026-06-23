@@ -15,6 +15,7 @@ let package = Package(
             name: "SpeedMonitorCore",
             path: "Sources/SpeedMonitorCore",
             resources: [
+                .process("Resources/CHANGELOG.md"),
                 .process("Resources/oui-vendors.tsv"),
             ],
             linkerSettings: [
