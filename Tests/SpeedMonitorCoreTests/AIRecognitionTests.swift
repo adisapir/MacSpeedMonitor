@@ -87,6 +87,40 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(result[0].method, .googleGemini)
     }
 
+    func testDebugPromptsShowAgentAndPreserveRedactedDeviceMetadata() throws {
+        let device = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.50.44",
+            hostname: "living-room-speaker.local",
+            macAddress: "AA:BB:CC:DD:EE:FF",
+            vendorName: "Example Vendor",
+            responseTimeMilliseconds: 3.27
+        ))
+        let input = AIRecognitionInput(itemID: "item-1", device: device)
+
+        let openAIPrompt = try OpenAIRecognitionProvider(
+            keyStore: MemoryAPIKeyStore(key: "test-key")
+        )
+        .debugPrompt(for: [input])
+        XCTAssertEqual(openAIPrompt.agentDescription, "OpenAI API (\(OpenAIRecognitionProvider.model))")
+        XCTAssertTrue(openAIPrompt.prompt.contains("developer:"))
+        XCTAssertTrue(openAIPrompt.prompt.contains("user:"))
+        XCTAssertTrue(openAIPrompt.prompt.contains("living-room-speaker.local"))
+        XCTAssertTrue(openAIPrompt.prompt.contains("Example Vendor"))
+        XCTAssertFalse(openAIPrompt.prompt.contains("192.168.50.44"))
+        XCTAssertFalse(openAIPrompt.prompt.contains("AA:BB:CC:DD:EE:FF"))
+        XCTAssertTrue(openAIPrompt.logMessage(deviceCount: 1).contains("AI Scan prompt sent to OpenAI API"))
+
+        let geminiPrompt = try GeminiRecognitionProvider(
+            keyStore: MemoryAPIKeyStore(key: "gemini-test-key")
+        )
+        .debugPrompt(for: [input])
+        XCTAssertEqual(geminiPrompt.agentDescription, "Google Gemini (\(GeminiRecognitionProvider.model))")
+        XCTAssertTrue(geminiPrompt.prompt.contains("systemInstruction:"))
+        XCTAssertTrue(geminiPrompt.prompt.contains("user:"))
+        XCTAssertFalse(geminiPrompt.prompt.contains("192.168.50.44"))
+        XCTAssertFalse(geminiPrompt.prompt.contains("AA:BB:CC:DD:EE:FF"))
+    }
+
     func testGeminiMalformedRequestPreservesProviderErrorInsteadOfReportingInvalidKey() async throws {
         let provider = GeminiRecognitionProvider(
             session: makeSession(),

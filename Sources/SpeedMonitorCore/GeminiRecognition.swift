@@ -102,6 +102,20 @@ struct GeminiRecognitionProvider: APIKeyBackedAIRecognitionProviding, Sendable {
     var availability: AIRecognitionAvailability { .available }
     var maximumBatchSize: Int { 25 }
 
+    func debugPrompt(for inputs: [AIRecognitionInput]) throws -> AIRecognitionDebugPrompt {
+        let inputJSON = String(decoding: try JSONEncoder().encode(inputs), as: UTF8.self)
+        return AIRecognitionDebugPrompt(
+            agentDescription: "\(method.displayName) (\(Self.model))",
+            prompt: """
+            systemInstruction:
+            \(AIRecognitionPrompt.instructions)
+
+            user:
+            \(inputJSON)
+            """
+        )
+    }
+
     func testConnection() async throws {
         var request = URLRequest(url: Self.modelURL)
         request.httpMethod = "GET"

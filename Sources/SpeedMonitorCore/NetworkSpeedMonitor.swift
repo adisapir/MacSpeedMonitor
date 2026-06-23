@@ -33,6 +33,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
     @Published public private(set) var networkScanTotalTargets = 0
     @Published public private(set) var lastNetworkScanAt: Date?
     @Published public private(set) var networkScanWarning: String?
+    @Published private(set) var portScanStates: [String: DevicePortScanState] = [:]
     @Published public private(set) var aiRecognitionStates: [String: DeviceAIRecognitionState] = [:]
     @Published public private(set) var isAIRecognitionRunning = false
     @Published public private(set) var aiRecognitionCompletedCount = 0
@@ -48,6 +49,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
     private var timerCancellable: AnyCancellable?
     private var wifiScanTimerCancellable: AnyCancellable?
     private var networkScanTask: Task<Void, Never>?
+    private var portScanTasks: [String: Task<Void, Never>] = [:]
+    private var portScanIDs: [String: UUID] = [:]
     private var activeNetworkScanRequest: NetworkScanRequest?
     private var networkScanID: UUID?
     private var networkScanGeneration = UUID()
@@ -140,6 +143,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
         guard networkScanPhase != .scanning else { return }
 
         cancelAIRecognition()
+        cancelAllPortScans()
+        portScanStates.removeAll()
         networkScanGeneration = UUID()
 
         let request: NetworkScanRequest
@@ -193,6 +198,52 @@ public final class NetworkSpeedMonitor: ObservableObject {
         guard networkScanPhase == .scanning else { return }
         networkScanPhase = .cancelled
         networkScanTask?.cancel()
+    }
+
+    func startPortScan(for device: DiscoveredNetworkDevice) {
+        let address = device.ipv4Address
+        portScanTasks[address]?.cancel()
+        let scanID = UUID()
+        portScanIDs[address] = scanID
+        portScanStates[address] = .scanning
+        portScanTasks[address] = Task { [weak self] in
+            do {
+                let ports = try await CommonPortScanner().scan(address: address)
+                try Task.checkCancellation()
+                guard let self, self.portScanIDs[address] == scanID else { return }
+                self.portScanStates[address] = .completed(ports)
+                self.portScanTasks[address] = nil
+                self.portScanIDs[address] = nil
+            } catch is CancellationError {
+                guard let self, self.portScanIDs[address] == scanID else { return }
+                if self.portScanStates[address]?.isScanning == true {
+                    self.portScanStates[address] = nil
+                }
+                self.portScanTasks[address] = nil
+                self.portScanIDs[address] = nil
+            } catch {
+                guard let self, self.portScanIDs[address] == scanID else { return }
+                self.portScanStates[address] = .failed(error.localizedDescription)
+                self.portScanTasks[address] = nil
+                self.portScanIDs[address] = nil
+            }
+        }
+    }
+
+    func cancelPortScan(for address: String) {
+        portScanIDs[address] = nil
+        portScanTasks[address]?.cancel()
+        portScanTasks[address] = nil
+        if portScanStates[address]?.isScanning == true {
+            portScanStates[address] = nil
+        }
+    }
+
+    func cancelAllPortScans() {
+        portScanIDs.removeAll()
+        for task in portScanTasks.values { task.cancel() }
+        portScanTasks.removeAll()
+        portScanStates = portScanStates.filter { !$0.value.isScanning }
     }
 
     private func stopNetworkScan(for error: NetworkScanError) {
@@ -392,6 +443,8 @@ public final class NetworkSpeedMonitor: ObservableObject {
                 }
 
                 do {
+                    let debugPrompt = try provider.debugPrompt(for: inputs)
+                    Self.logger.debug("\(debugPrompt.logMessage(deviceCount: inputs.count), privacy: .public)")
                     let recognitions = try await provider.recognize(inputs)
                     guard self.aiRecognitionID == recognitionID,
                           self.networkScanGeneration == generation,

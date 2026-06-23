@@ -831,6 +831,23 @@ struct DashboardView: View {
 
 // MARK: - Connected Network View
 
+private enum SortDirection: String, CaseIterable, Identifiable {
+    case ascending = "Ascending"
+    case descending = "Descending"
+
+    var id: Self { self }
+    var systemImage: String { self == .ascending ? "arrow.up" : "arrow.down" }
+}
+
+private enum NetworkDeviceSortField: String, CaseIterable, Identifiable {
+    case ipAddress = "IP Address"
+    case deviceName = "Device Name"
+    case macAddress = "MAC Address"
+    case vendor = "Vendor"
+
+    var id: Self { self }
+}
+
 struct NetworkInfoView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
     @StateObject private var localNetworkPermission = LocalNetworkPermissionManager()
@@ -839,6 +856,8 @@ struct NetworkInfoView: View {
     @State private var showingAIPrivacyDisclosure = false
     @State private var pendingAIIdentity: String?
     @State private var pendingExternalAIMethod: AIRecognitionMethod?
+    @State private var deviceSortField: NetworkDeviceSortField = .ipAddress
+    @State private var deviceSortDirection: SortDirection = .ascending
     
     var body: some View {
         ScrollView {
@@ -1000,6 +1019,7 @@ struct NetworkInfoView: View {
         .onDisappear {
             localNetworkPermission.cancelRequest()
             monitor.cancelNetworkScan()
+            monitor.cancelAllPortScans()
         }
     }
 
@@ -1026,10 +1046,12 @@ struct NetworkInfoView: View {
                         HelpItem(term: "Privacy", explanation: "Devices with a hardware address are saved to a local Application Support file so later scans can restore details. History is never uploaded or used for analytics."),
                         HelpItem(term: "Visibility", explanation: "Firewalls, sleeping devices, guest-network isolation, and router settings can prevent devices from appearing."),
                         HelpItem(term: "Optional details", explanation: "Hostname, hardware address, manufacturer, and response time appear only when macOS and the device make them available."),
-                        HelpItem(term: "Scan range", explanation: "Only the directly connected private IPv4 network is checked, with a maximum of 256 addresses. No service ports are scanned."),
+                        HelpItem(term: "Scan range", explanation: "Only the directly connected private IPv4 network is checked, with a maximum of 256 addresses. Service ports are checked only when you choose Find Open Ports for one device."),
+                        HelpItem(term: "Open ports", explanation: "Find Open Ports checks a short list of common TCP services with brief connection attempts. It does not sweep all 65,535 ports or inspect any traffic."),
                     ]
                 )
 
+                networkDeviceSortMenu
                 aiScanActionButton
                 networkScanActionButton
             }
@@ -1087,11 +1109,15 @@ struct NetworkInfoView: View {
                 }
             } else {
                 VStack(spacing: 10) {
-                    ForEach(monitor.networkScanDevices) { device in
+                    ForEach(sortedNetworkDevices) { device in
                         NetworkDeviceRow(
                             device: device,
                             aiState: monitor.aiRecognitionStates[device.aiIdentity],
+                            portScanState: monitor.portScanStates[device.ipv4Address],
+                            canFindOpenPorts: monitor.networkScanPhase != .scanning && !device.isStale,
                             copyAction: copyToClipboard,
+                            findOpenPortsAction: { monitor.startPortScan(for: device) },
+                            cancelPortScanAction: { monitor.cancelPortScan(for: device.ipv4Address) },
                             recognizeAction: device.isEligibleForAIRecognition
                                 ? { requestAIRecognition(for: device) }
                                 : nil
@@ -1115,6 +1141,94 @@ struct NetworkInfoView: View {
         } message: {
             Text("Redacted device metadata—discovered hostname, vendor, role flags, and response time—will be sent to \(privacyDisclosureProviderName) using your API key. IP addresses and MAC addresses are never sent. AI suggestions may be inaccurate and are saved locally by MAC address for later scans.")
         }
+    }
+
+    private var networkDeviceSortMenu: some View {
+        Menu {
+            Section("Sort By") {
+                ForEach(NetworkDeviceSortField.allCases) { field in
+                    Button {
+                        deviceSortField = field
+                    } label: {
+                        if deviceSortField == field {
+                            Label(field.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(field.rawValue)
+                        }
+                    }
+                }
+            }
+            Section("Direction") {
+                ForEach(SortDirection.allCases) { direction in
+                    Button {
+                        deviceSortDirection = direction
+                    } label: {
+                        Label(direction.rawValue, systemImage: direction.systemImage)
+                    }
+                }
+            }
+        } label: {
+            Label("Sort", systemImage: "arrow.up.arrow.down")
+        }
+        .buttonStyle(.bordered)
+        .help("Sort devices by \(deviceSortField.rawValue.lowercased())")
+    }
+
+    private var sortedNetworkDevices: [DiscoveredNetworkDevice] {
+        monitor.networkScanDevices.sorted { left, right in
+            if let missingOrder = missingNetworkDeviceValueOrder(left, right) {
+                return missingOrder
+            }
+
+            let comparison: ComparisonResult
+            switch deviceSortField {
+            case .ipAddress:
+                let leftValue = IPv4AddressValue(left.ipv4Address)?.rawValue ?? UInt32.max
+                let rightValue = IPv4AddressValue(right.ipv4Address)?.rawValue ?? UInt32.max
+                comparison = leftValue == rightValue
+                    ? .orderedSame
+                    : (leftValue < rightValue ? .orderedAscending : .orderedDescending)
+            case .deviceName:
+                comparison = left.displayName(aiState: monitor.aiRecognitionStates[left.aiIdentity])
+                    .localizedStandardCompare(
+                        right.displayName(aiState: monitor.aiRecognitionStates[right.aiIdentity])
+                    )
+            case .macAddress:
+                comparison = left.macAddress!.localizedStandardCompare(right.macAddress!)
+            case .vendor:
+                comparison = left.vendorName!.localizedStandardCompare(right.vendorName!)
+            }
+
+            if comparison == .orderedSame {
+                let leftIP = IPv4AddressValue(left.ipv4Address)?.rawValue ?? UInt32.max
+                let rightIP = IPv4AddressValue(right.ipv4Address)?.rawValue ?? UInt32.max
+                return leftIP < rightIP
+            }
+            return deviceSortDirection == .ascending
+                ? comparison == .orderedAscending
+                : comparison == .orderedDescending
+        }
+    }
+
+    private func missingNetworkDeviceValueOrder(
+        _ left: DiscoveredNetworkDevice,
+        _ right: DiscoveredNetworkDevice
+    ) -> Bool? {
+        let leftValue: String?
+        let rightValue: String?
+        switch deviceSortField {
+        case .macAddress:
+            leftValue = left.macAddress
+            rightValue = right.macAddress
+        case .vendor:
+            leftValue = left.vendorName
+            rightValue = right.vendorName
+        case .ipAddress, .deviceName:
+            return nil
+        }
+        if leftValue == nil && rightValue != nil { return false }
+        if leftValue != nil && rightValue == nil { return true }
+        return nil
     }
 
     @ViewBuilder
@@ -1282,7 +1396,11 @@ struct NetworkInfoView: View {
 private struct NetworkDeviceRow: View {
     let device: DiscoveredNetworkDevice
     let aiState: DeviceAIRecognitionState?
+    let portScanState: DevicePortScanState?
+    let canFindOpenPorts: Bool
     let copyAction: (String) -> Void
+    let findOpenPortsAction: () -> Void
+    let cancelPortScanAction: () -> Void
     let recognizeAction: (() -> Void)?
     @State private var isAIInsightExpanded = false
 
@@ -1329,6 +1447,8 @@ private struct NetworkDeviceRow: View {
                             .help(vendorName)
                     }
 
+                    portScanResult
+
                     aiInsight
                 }
 
@@ -1344,6 +1464,21 @@ private struct NetworkDeviceRow: View {
                 Button("Copy MAC Address") { copyAction(macAddress) }
             }
             Button("Copy All Details") { copyAction(allDetails) }
+            Divider()
+            if portScanState?.isScanning == true {
+                Button(role: .cancel) {
+                    cancelPortScanAction()
+                } label: {
+                    Label("Cancel Port Scan", systemImage: "xmark.circle")
+                }
+            } else {
+                Button {
+                    findOpenPortsAction()
+                } label: {
+                    Label("Find Open Ports", systemImage: "network.badge.shield.half.filled")
+                }
+                .disabled(!canFindOpenPorts)
+            }
             if let recognizeAction {
                 Divider()
                 Button {
@@ -1356,6 +1491,31 @@ private struct NetworkDeviceRow: View {
         .onChange(of: aiState) { _, state in
             if case .recognized = state { isAIInsightExpanded = true }
             if case .insufficient = state { isAIInsightExpanded = true }
+        }
+    }
+
+    @ViewBuilder
+    private var portScanResult: some View {
+        if let portScanState {
+            switch portScanState {
+            case .scanning:
+                HStack(spacing: 7) {
+                    ProgressView().controlSize(.small)
+                    Text("Scanning common TCP ports...")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption)
+            case .completed(let ports):
+                detail(
+                    "Open Ports",
+                    value: ports.isEmpty ? "None found" : ports.map(\.displayName).joined(separator: ", ")
+                )
+                .textSelection(.enabled)
+            case .failed(let message):
+                Label("Port scan failed: \(message)", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
         }
     }
 
@@ -1451,6 +1611,9 @@ private struct NetworkDeviceRow: View {
         var values = [resolvedDisplayName, "IP: \(device.ipv4Address)"]
         if let macAddress = device.macAddress { values.append("MAC: \(macAddress)") }
         if let vendorName = device.vendorName { values.append("Vendor: \(vendorName)") }
+        if case .completed(let ports) = portScanState {
+            values.append("Open Ports: \(ports.isEmpty ? "None found" : ports.map(\.displayName).joined(separator: ", "))")
+        }
         if let responseTime = device.responseTimeMilliseconds {
             values.append(String(format: "Response: %.1f ms", responseTime))
         }
@@ -1463,6 +1626,9 @@ private struct NetworkDeviceRow: View {
         if device.isLocalDevice { values.append("This Mac") }
         if device.isStale { values.append("From previous scan") }
         if let vendorName = device.vendorName { values.append("Vendor \(vendorName)") }
+        if case .completed(let ports) = portScanState {
+            values.append(ports.isEmpty ? "No common open ports found" : "Open ports \(ports.map(\.displayName).joined(separator: ", "))")
+        }
         if let responseTime = device.responseTimeMilliseconds {
             values.append(String(format: "Response time %.1f milliseconds", responseTime))
         }
@@ -1490,10 +1656,32 @@ private extension AIRecognitionMethod {
 
 // MARK: - Wi-Fi Scan View
 
+private enum WiFiSortField: String, CaseIterable, Identifiable {
+    case ssid = "SSID"
+    case connected = "Connected"
+    case routerIPAddress = "Router IP"
+    case vendor = "Vendor"
+    case signalPercentage = "Signal %"
+    case rssi = "RSSI"
+    case security = "Security"
+    case band = "Band"
+    case generation = "Wi-Fi Generation"
+    case channel = "Channel"
+    case channelWidth = "Channel Width"
+    case sameChannelAPs = "Same Channel APs"
+    case overlappingAPs = "Overlapping APs"
+    case country = "Country"
+    case bssid = "BSSID"
+
+    var id: Self { self }
+}
+
 struct WiFiScanView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
     @StateObject private var locationPermission = LocationPermissionManager()
     @State private var authorizationRetryTask: Task<Void, Never>?
+    @State private var wifiSortField: WiFiSortField = .ssid
+    @State private var wifiSortDirection: SortDirection = .ascending
 
     var body: some View {
         ScrollView {
@@ -1579,11 +1767,15 @@ struct WiFiScanView: View {
                     .padding(.top, 20)
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Networks")
-                            .font(.headline)
-                            .padding(.horizontal)
+                        HStack {
+                            Text("Networks")
+                                .font(.headline)
+                            Spacer()
+                            wifiSortMenu
+                        }
+                        .padding(.horizontal)
 
-                        ForEach(monitor.wifiScanResults) { network in
+                        ForEach(sortedWiFiNetworks) { network in
                             WiFiNetworkRow(network: network)
                         }
                     }
@@ -1621,6 +1813,129 @@ struct WiFiScanView: View {
         }
 
         return "No scan results yet"
+    }
+
+    private var wifiSortMenu: some View {
+        Menu {
+            Section("Sort By") {
+                ForEach(WiFiSortField.allCases) { field in
+                    Button {
+                        wifiSortField = field
+                    } label: {
+                        if wifiSortField == field {
+                            Label(field.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(field.rawValue)
+                        }
+                    }
+                }
+            }
+            Section("Direction") {
+                ForEach(SortDirection.allCases) { direction in
+                    Button {
+                        wifiSortDirection = direction
+                    } label: {
+                        Label(direction.rawValue, systemImage: direction.systemImage)
+                    }
+                }
+            }
+        } label: {
+            Label("Sort", systemImage: "arrow.up.arrow.down")
+        }
+        .buttonStyle(.bordered)
+        .help("Sort networks by \(wifiSortField.rawValue.lowercased())")
+    }
+
+    private var sortedWiFiNetworks: [WiFiNetworkInfo] {
+        monitor.wifiScanResults.sorted { left, right in
+            if let missingOrder = missingWiFiValueOrder(left, right) {
+                return missingOrder
+            }
+            let comparison = wifiComparison(left, right)
+            if comparison == .orderedSame {
+                let ssidComparison = left.ssid.localizedStandardCompare(right.ssid)
+                if ssidComparison != .orderedSame {
+                    return ssidComparison == .orderedAscending
+                }
+                return (left.bssid ?? "") < (right.bssid ?? "")
+            }
+            return wifiSortDirection == .ascending
+                ? comparison == .orderedAscending
+                : comparison == .orderedDescending
+        }
+    }
+
+    private func missingWiFiValueOrder(_ left: WiFiNetworkInfo, _ right: WiFiNetworkInfo) -> Bool? {
+        let leftValue: String?
+        let rightValue: String?
+        switch wifiSortField {
+        case .routerIPAddress:
+            leftValue = left.routerIPAddress
+            rightValue = right.routerIPAddress
+        case .country:
+            leftValue = left.countryCode
+            rightValue = right.countryCode
+        case .bssid:
+            leftValue = left.bssid
+            rightValue = right.bssid
+        default:
+            return nil
+        }
+        if leftValue == nil && rightValue != nil { return false }
+        if leftValue != nil && rightValue == nil { return true }
+        return nil
+    }
+
+    private func wifiComparison(_ left: WiFiNetworkInfo, _ right: WiFiNetworkInfo) -> ComparisonResult {
+        switch wifiSortField {
+        case .ssid:
+            return left.ssid.localizedStandardCompare(right.ssid)
+        case .connected:
+            return compare(left.isConnected ? 1 : 0, right.isConnected ? 1 : 0)
+        case .routerIPAddress:
+            return compare(
+                IPv4AddressValue(left.routerIPAddress!)?.rawValue ?? UInt32.max,
+                IPv4AddressValue(right.routerIPAddress!)?.rawValue ?? UInt32.max
+            )
+        case .vendor:
+            return left.vendorName.localizedStandardCompare(right.vendorName)
+        case .signalPercentage:
+            return compare(left.signalPercentage, right.signalPercentage)
+        case .rssi:
+            return compare(left.rssi, right.rssi)
+        case .security:
+            return left.securityDescription.localizedStandardCompare(right.securityDescription)
+        case .band:
+            return compare(bandSortValue(left.band), bandSortValue(right.band))
+        case .generation:
+            return left.routerGeneration.localizedStandardCompare(right.routerGeneration)
+        case .channel:
+            return compare(left.channel, right.channel)
+        case .channelWidth:
+            return left.channelWidth.localizedStandardCompare(right.channelWidth)
+        case .sameChannelAPs:
+            return compare(left.sameChannelAPCount, right.sameChannelAPCount)
+        case .overlappingAPs:
+            return compare(left.overlappingChannelAPCount, right.overlappingChannelAPCount)
+        case .country:
+            return left.countryCode!.localizedStandardCompare(right.countryCode!)
+        case .bssid:
+            return left.bssid!.localizedStandardCompare(right.bssid!)
+        }
+    }
+
+    private func compare<T: Comparable>(_ left: T, _ right: T) -> ComparisonResult {
+        if left == right { return .orderedSame }
+        return left < right ? .orderedAscending : .orderedDescending
+    }
+
+    private func bandSortValue(_ band: WiFiNetworkInfo.Band) -> Int {
+        switch band {
+        case .twoPointFourGHz: return 0
+        case .fiveGHz: return 1
+        case .sixGHz: return 2
+        case .unknown: return 3
+        }
     }
 
     private func startWiFiScanningAfterAuthorization() {

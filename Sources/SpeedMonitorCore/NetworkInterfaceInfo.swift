@@ -187,6 +187,136 @@ public enum NetworkScanPhase: Sendable, Equatable {
     case failed(String)
 }
 
+struct OpenPort: Sendable, Equatable, Hashable, Identifiable {
+    let port: UInt16
+    let serviceName: String
+
+    var id: UInt16 { port }
+    var displayName: String { "\(port) \(serviceName)" }
+}
+
+enum DevicePortScanState: Sendable, Equatable {
+    case scanning
+    case completed([OpenPort])
+    case failed(String)
+
+    var isScanning: Bool {
+        if case .scanning = self { return true }
+        return false
+    }
+}
+
+struct CommonPortScanner: Sendable {
+    static let commonPorts: [OpenPort] = [
+        OpenPort(port: 20, serviceName: "FTP Data"),
+        OpenPort(port: 21, serviceName: "FTP"),
+        OpenPort(port: 22, serviceName: "SSH"),
+        OpenPort(port: 23, serviceName: "Telnet"),
+        OpenPort(port: 25, serviceName: "SMTP"),
+        OpenPort(port: 53, serviceName: "DNS"),
+        OpenPort(port: 80, serviceName: "HTTP"),
+        OpenPort(port: 110, serviceName: "POP3"),
+        OpenPort(port: 111, serviceName: "RPC"),
+        OpenPort(port: 135, serviceName: "MS RPC"),
+        OpenPort(port: 139, serviceName: "NetBIOS"),
+        OpenPort(port: 143, serviceName: "IMAP"),
+        OpenPort(port: 443, serviceName: "HTTPS"),
+        OpenPort(port: 445, serviceName: "SMB"),
+        OpenPort(port: 515, serviceName: "LPD"),
+        OpenPort(port: 548, serviceName: "AFP"),
+        OpenPort(port: 631, serviceName: "IPP"),
+        OpenPort(port: 993, serviceName: "IMAPS"),
+        OpenPort(port: 995, serviceName: "POP3S"),
+        OpenPort(port: 1883, serviceName: "MQTT"),
+        OpenPort(port: 2049, serviceName: "NFS"),
+        OpenPort(port: 3000, serviceName: "Web App"),
+        OpenPort(port: 3306, serviceName: "MySQL"),
+        OpenPort(port: 3389, serviceName: "Remote Desktop"),
+        OpenPort(port: 5000, serviceName: "Web/AirPlay"),
+        OpenPort(port: 5357, serviceName: "Web Services"),
+        OpenPort(port: 5432, serviceName: "PostgreSQL"),
+        OpenPort(port: 5900, serviceName: "VNC"),
+        OpenPort(port: 8000, serviceName: "Web App"),
+        OpenPort(port: 8080, serviceName: "HTTP Alt"),
+        OpenPort(port: 8443, serviceName: "HTTPS Alt"),
+        OpenPort(port: 8883, serviceName: "MQTTS"),
+        OpenPort(port: 9100, serviceName: "Printer"),
+        OpenPort(port: 62078, serviceName: "Apple Device"),
+    ]
+
+    private let timeoutMilliseconds: Int32
+    private let maximumConcurrentProbes: Int
+    private let probePort: @Sendable (String, UInt16, Int32) -> Bool
+
+    init(
+        timeoutMilliseconds: Int32 = 350,
+        maximumConcurrentProbes: Int = 12,
+        probePort: (@Sendable (String, UInt16, Int32) -> Bool)? = nil
+    ) {
+        self.timeoutMilliseconds = max(50, timeoutMilliseconds)
+        self.maximumConcurrentProbes = max(1, maximumConcurrentProbes)
+        self.probePort = probePort ?? Self.probe
+    }
+
+    nonisolated func scan(address: String) async throws -> [OpenPort] {
+        var openPorts: [OpenPort] = []
+        for batchStart in stride(from: 0, to: Self.commonPorts.count, by: maximumConcurrentProbes) {
+            try Task.checkCancellation()
+            let batchEnd = min(batchStart + maximumConcurrentProbes, Self.commonPorts.count)
+            let batch = Self.commonPorts[batchStart..<batchEnd]
+            try await withThrowingTaskGroup(of: OpenPort?.self) { group in
+                for candidate in batch {
+                    group.addTask {
+                        try Task.checkCancellation()
+                        return probePort(address, candidate.port, timeoutMilliseconds) ? candidate : nil
+                    }
+                }
+                for try await result in group {
+                    if let result { openPorts.append(result) }
+                }
+            }
+        }
+        return openPorts.sorted { $0.port < $1.port }
+    }
+
+    nonisolated private static func probe(address: String, port: UInt16, timeoutMilliseconds: Int32) -> Bool {
+        let descriptor = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
+        guard descriptor >= 0 else { return false }
+        defer { close(descriptor) }
+
+        let existingFlags = fcntl(descriptor, F_GETFL, 0)
+        guard existingFlags >= 0,
+              fcntl(descriptor, F_SETFL, existingFlags | O_NONBLOCK) == 0
+        else { return false }
+
+        var destination = sockaddr_in()
+        destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        destination.sin_family = sa_family_t(AF_INET)
+        destination.sin_port = port.bigEndian
+        guard address.withCString({ inet_pton(AF_INET, $0, &destination.sin_addr) }) == 1 else {
+            return false
+        }
+
+        let connectionResult = withUnsafePointer(to: &destination) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        if connectionResult == 0 { return true }
+        guard errno == EINPROGRESS else { return false }
+
+        var pollDescriptor = pollfd(fd: descriptor, events: Int16(POLLOUT), revents: 0)
+        guard poll(&pollDescriptor, 1, timeoutMilliseconds) > 0 else { return false }
+
+        var socketError: Int32 = 0
+        var errorLength = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &socketError, &errorLength) == 0 else {
+            return false
+        }
+        return socketError == 0
+    }
+}
+
 protocol NetworkScanning: Sendable {
     func scan(request: NetworkScanRequest) -> AsyncThrowingStream<NetworkScanEvent, Error>
 }

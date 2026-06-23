@@ -32,6 +32,25 @@ struct AppleFoundationModelsRecognitionProvider: AIRecognitionProviding {
     var method: AIRecognitionMethod { .appleOnDevice }
     var maximumBatchSize: Int { 1 }
 
+    func debugPrompt(for inputs: [AIRecognitionInput]) throws -> AIRecognitionDebugPrompt {
+        let inputJSON: String
+        if let input = inputs.first {
+            inputJSON = String(decoding: try JSONEncoder().encode(input), as: UTF8.self)
+        } else {
+            inputJSON = "null"
+        }
+        return AIRecognitionDebugPrompt(
+            agentDescription: "\(method.displayName) (SystemLanguageModel.default)",
+            prompt: """
+            instructions:
+            \(AIRecognitionPrompt.instructions)
+
+            user:
+            Device metadata: \(inputJSON)
+            """
+        )
+    }
+
     var availability: AIRecognitionAvailability {
         switch SystemLanguageModel.default.availability {
         case .available:

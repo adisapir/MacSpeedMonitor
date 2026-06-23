@@ -219,6 +219,19 @@ struct AIRecognitionInput: Codable, Sendable, Equatable {
     }
 }
 
+struct AIRecognitionDebugPrompt: Sendable, Equatable {
+    let agentDescription: String
+    let prompt: String
+
+    func logMessage(deviceCount: Int) -> String {
+        let deviceLabel = deviceCount == 1 ? "device" : "devices"
+        return """
+        AI Scan prompt sent to \(agentDescription) for \(deviceCount) scanned \(deviceLabel):
+        \(prompt)
+        """
+    }
+}
+
 struct AIRecognitionBatcher {
     static func batches<T>(from values: [T], maximumSize: Int = 25) -> [[T]] {
         guard maximumSize > 0 else { return [] }
@@ -352,7 +365,17 @@ protocol AIRecognitionProviding: Sendable {
     var method: AIRecognitionMethod { get }
     var availability: AIRecognitionAvailability { get }
     var maximumBatchSize: Int { get }
+    func debugPrompt(for inputs: [AIRecognitionInput]) throws -> AIRecognitionDebugPrompt
     func recognize(_ inputs: [AIRecognitionInput]) async throws -> [DeviceAIRecognition]
+}
+
+extension AIRecognitionProviding {
+    func debugPrompt(for inputs: [AIRecognitionInput]) throws -> AIRecognitionDebugPrompt {
+        AIRecognitionDebugPrompt(
+            agentDescription: method.displayName,
+            prompt: String(decoding: try JSONEncoder().encode(inputs), as: UTF8.self)
+        )
+    }
 }
 
 protocol APIKeyBackedAIRecognitionProviding: AIRecognitionProviding {
@@ -376,6 +399,20 @@ struct OpenAIRecognitionProvider: APIKeyBackedAIRecognitionProviding, Sendable {
     var method: AIRecognitionMethod { .openAI }
     var availability: AIRecognitionAvailability { .available }
     var maximumBatchSize: Int { 25 }
+
+    func debugPrompt(for inputs: [AIRecognitionInput]) throws -> AIRecognitionDebugPrompt {
+        let inputJSON = String(decoding: try JSONEncoder().encode(inputs), as: UTF8.self)
+        return AIRecognitionDebugPrompt(
+            agentDescription: "\(method.displayName) (\(Self.model))",
+            prompt: """
+            developer:
+            \(AIRecognitionPrompt.instructions)
+
+            user:
+            \(inputJSON)
+            """
+        )
+    }
 
     func testConnection() async throws {
         var request = URLRequest(url: Self.modelURL)

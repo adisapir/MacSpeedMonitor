@@ -2,6 +2,21 @@ import XCTest
 @testable import SpeedMonitorCore
 
 final class NetworkScannerTests: XCTestCase {
+    func testCommonPortScannerChecksBoundedServiceListAndReturnsOnlyOpenPorts() async throws {
+        let simulatedOpenPorts: Set<UInt16> = [22, 443, 9100]
+        let scanner = CommonPortScanner(
+            timeoutMilliseconds: 50,
+            maximumConcurrentProbes: 4,
+            probePort: { _, port, _ in simulatedOpenPorts.contains(port) }
+        )
+
+        let results = try await scanner.scan(address: "192.168.1.10")
+
+        XCTAssertLessThan(CommonPortScanner.commonPorts.count, 64)
+        XCTAssertEqual(results.map(\.port), [22, 443, 9100])
+        XCTAssertEqual(results.map(\.serviceName), ["SSH", "HTTPS", "Printer"])
+    }
+
     func testLiveScannerRecognizesLocalNetworkDevicesWhenEnabled() async throws {
         guard ProcessInfo.processInfo.environment["LIVE_NETWORK_SCAN"] == "1" else {
             throw XCTSkip("Set LIVE_NETWORK_SCAN=1 to exercise the production scanner on the current LAN.")
