@@ -2501,7 +2501,7 @@ struct AboutView: View {
 private struct ChangeLogView: View {
     @Environment(\.dismiss) private var dismiss
 
-    private let content = ChangeLogDocument.load()
+    private let document = ChangeLogDocument.load()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2520,23 +2520,85 @@ private struct ChangeLogView: View {
             Divider()
 
             ScrollView {
-                Text(content.attributedText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding()
+                VStack(alignment: .leading, spacing: 22) {
+                    Text(document.title)
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .textSelection(.enabled)
+
+                    ForEach(document.sections) { section in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(section.title)
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                                .textSelection(.enabled)
+
+                            VStack(alignment: .leading, spacing: 7) {
+                                ForEach(section.items) { item in
+                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                        Text("•")
+                                            .font(.body)
+                                            .foregroundStyle(.secondary)
+                                        Text(item.text)
+                                            .font(.body)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
             }
         }
-        .frame(minWidth: 520, minHeight: 560)
+        .frame(minWidth: 560, minHeight: 600)
     }
 }
 
 private struct ChangeLogDocument {
-    let attributedText: AttributedString
+    let title: String
+    let sections: [ChangeLogSection]
 
     static func load() -> ChangeLogDocument {
         let markdown = bundledMarkdown ?? "## Change Log\n\n- No change log is available."
-        let attributed = (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
-        return ChangeLogDocument(attributedText: attributed)
+        return parse(markdown)
+    }
+
+    private static func parse(_ markdown: String) -> ChangeLogDocument {
+        var title = "Change Log"
+        var sections: [ChangeLogSection] = []
+        var currentTitle: String?
+        var currentItems: [ChangeLogItem] = []
+
+        func finishCurrentSection() {
+            guard let currentTitle else { return }
+            sections.append(ChangeLogSection(title: currentTitle, items: currentItems))
+            currentItems = []
+        }
+
+        for rawLine in markdown.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { continue }
+
+            if line.hasPrefix("# ") {
+                title = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("## ") {
+                finishCurrentSection()
+                currentTitle = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("- ") {
+                currentItems.append(ChangeLogItem(text: String(line.dropFirst(2))))
+            }
+        }
+
+        finishCurrentSection()
+
+        if sections.isEmpty {
+            sections = [ChangeLogSection(title: title, items: [ChangeLogItem(text: markdown)])]
+        }
+
+        return ChangeLogDocument(title: title, sections: sections)
     }
 
     private static var bundledMarkdown: String? {
@@ -2551,6 +2613,17 @@ private struct ChangeLogDocument {
         Bundle(for: ContentViewBundleToken.self).url(forResource: "CHANGELOG", withExtension: "md")
         #endif
     }
+}
+
+private struct ChangeLogSection: Identifiable {
+    let id = UUID()
+    let title: String
+    let items: [ChangeLogItem]
+}
+
+private struct ChangeLogItem: Identifiable {
+    let id = UUID()
+    let text: String
 }
 
 private final class ContentViewBundleToken {}
