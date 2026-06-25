@@ -1,1 +1,1 @@
-4bee09c611e18246b0c3631ccff0441d092927b894780ecb78a8d9c5e5418876  MacSpeedMonitor-1.1.1.dmg
+1ed88aa4aabefc73520f2ebab293fb70127777f49f6cec5c237dc5723c062dec  MacSpeedMonitor-1.1.3.dmg
