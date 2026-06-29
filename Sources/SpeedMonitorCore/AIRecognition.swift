@@ -337,8 +337,13 @@ struct AIRecognitionDebugPrompt: Sendable, Equatable {
     func logMessage(deviceCount: Int) -> String {
         let deviceLabel = deviceCount == 1 ? "device" : "devices"
         return """
-        AI Scan prompt sent to \(agentDescription) for \(deviceCount) scanned \(deviceLabel):
+        ================ AI SCAN REQUEST BEGIN ================
+        Provider: \(agentDescription)
+        Devices: \(deviceCount) scanned \(deviceLabel)
+
+        Prompt/Data:
         \(prompt)
+        ================= AI SCAN REQUEST END =================
         """
     }
 }

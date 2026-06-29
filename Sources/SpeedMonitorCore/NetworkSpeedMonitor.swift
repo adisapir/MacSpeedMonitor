@@ -455,7 +455,11 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
                 do {
                     let debugPrompt = try provider.debugPrompt(for: inputs)
-                    Self.logger.debug("\(debugPrompt.logMessage(deviceCount: inputs.count), privacy: .public)")
+                    let debugLogMessage = debugPrompt.logMessage(deviceCount: inputs.count)
+                    Self.logger.debug("\(debugLogMessage, privacy: .public)")
+                    #if DEBUG
+                    print(debugLogMessage)
+                    #endif
                     let recognitions = try await provider.recognize(inputs)
                     guard self.aiRecognitionID == recognitionID,
                           self.networkScanGeneration == generation,

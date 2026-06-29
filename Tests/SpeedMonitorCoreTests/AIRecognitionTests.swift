@@ -156,7 +156,11 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertTrue(openAIPrompt.prompt.contains("Example Vendor"))
         XCTAssertFalse(openAIPrompt.prompt.contains("192.168.50.44"))
         XCTAssertFalse(openAIPrompt.prompt.contains("AA:BB:CC:DD:EE:FF"))
-        XCTAssertTrue(openAIPrompt.logMessage(deviceCount: 1).contains("AI Scan prompt sent to OpenAI API"))
+        let openAILogMessage = openAIPrompt.logMessage(deviceCount: 1)
+        XCTAssertTrue(openAILogMessage.contains("AI SCAN REQUEST BEGIN"))
+        XCTAssertTrue(openAILogMessage.contains("Provider: OpenAI API"))
+        XCTAssertTrue(openAILogMessage.contains("Prompt/Data:"))
+        XCTAssertTrue(openAILogMessage.contains("AI SCAN REQUEST END"))
 
         let geminiPrompt = try GeminiRecognitionProvider(
             keyStore: MemoryAPIKeyStore(key: "gemini-test-key")
