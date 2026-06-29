@@ -151,13 +151,20 @@ public enum DeviceAIRecognitionState: Sendable, Equatable {
 
 extension DiscoveredNetworkDevice {
     func displayName(aiState: DeviceAIRecognitionState?) -> String {
-        guard displayName == "Unknown Device",
-              case .recognized(let recognition) = aiState else {
+        guard case .recognized(let recognition) = aiState else {
             return displayName
         }
 
         let suggestedName = recognition.suggestedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return suggestedName.isEmpty ? displayName : suggestedName
+        let deviceType = recognition.deviceTypeDisplayName
+
+        if displayName == "Unknown Device" {
+            return suggestedName.isEmpty ? deviceType ?? displayName : suggestedName
+        }
+        if isLocalDevice, let deviceType, !displayName.localizedCaseInsensitiveContains(deviceType) {
+            return "\(displayName) (\(deviceType))"
+        }
+        return displayName
     }
 
     func systemImageName(aiState: DeviceAIRecognitionState?) -> String {
@@ -181,6 +188,32 @@ extension DeviceAIRecognition {
             suggestedName: suggestedName,
             likelyPurpose: likelyPurpose
         )
+    }
+
+    var deviceTypeDisplayName: String? {
+        let candidates = [category, suggestedName, likelyPurpose]
+        let mappings: [(String, [String])] = [
+            ("Printer", ["printer", "scanner"]),
+            ("Camera", ["camera", "webcam", "onvif", "rtsp"]),
+            ("Smart TV", ["smart tv", "television", "tv", "media player", "streaming"]),
+            ("Smart Speaker", ["speaker", "audio", "soundbar"]),
+            ("Phone", ["phone", "smartphone", "mobile", "iphone"]),
+            ("Tablet", ["tablet", "ipad"]),
+            ("MacBook", ["macbook", "laptop", "notebook"]),
+            ("Computer", ["computer", "desktop", "workstation"]),
+            ("Server", ["server", "nas", "storage"]),
+            ("Game Console", ["game", "console"]),
+            ("Smart Watch", ["watch", "wearable"]),
+            ("Smart Light", ["light", "bulb", "lamp"]),
+            ("Thermostat", ["thermostat", "climate"]),
+            ("Router", ["router", "access point", "gateway", "mesh"]),
+            ("Smart Home Device", ["hub", "bridge", "controller", "sensor", "alarm", "appliance", "iot"]),
+        ]
+
+        let text = candidates.joined(separator: " ").lowercased()
+        return mappings.first { _, keywords in
+            keywords.contains { text.contains($0) }
+        }?.0
     }
 
     func withResolvedSystemImageName() -> DeviceAIRecognition {
@@ -254,12 +287,14 @@ struct AIRecognitionInput: Codable, Sendable, Equatable {
     let isRouter: Bool
     let isLocalDevice: Bool
     let responseTimeMilliseconds: Double?
+    let pingTTL: Int?
     let openPorts: [AIRecognitionOpenPort]?
+    let httpServerHeaders: [AIRecognitionHTTPServerHeader]?
 
     init(
         itemID: String,
         device: DiscoveredNetworkDevice,
-        openPorts: [OpenPort]? = nil
+        enhancedScan: DeviceEnhancedScanResult? = nil
     ) {
         self.itemID = itemID
         self.hostname = device.hostname
@@ -269,7 +304,9 @@ struct AIRecognitionInput: Codable, Sendable, Equatable {
         self.responseTimeMilliseconds = device.responseTimeMilliseconds.map {
             ($0 * 10).rounded() / 10
         }
-        self.openPorts = openPorts?.map(AIRecognitionOpenPort.init)
+        self.pingTTL = enhancedScan?.pingTTL ?? device.pingTTL
+        self.openPorts = enhancedScan?.openPorts.map(AIRecognitionOpenPort.init)
+        self.httpServerHeaders = enhancedScan?.httpServerHeaders.map(AIRecognitionHTTPServerHeader.init)
     }
 }
 
@@ -280,6 +317,16 @@ struct AIRecognitionOpenPort: Codable, Sendable, Equatable {
     init(openPort: OpenPort) {
         self.port = openPort.port
         self.serviceName = openPort.serviceName
+    }
+}
+
+struct AIRecognitionHTTPServerHeader: Codable, Sendable, Equatable {
+    let port: UInt16
+    let value: String
+
+    init(header: HTTPServerHeader) {
+        self.port = header.port
+        self.value = header.value
     }
 }
 
@@ -639,38 +686,89 @@ private struct OpenAIErrorEnvelope: Decodable {
 }
 
 extension DiscoveredNetworkDevice {
-    var aiIdentity: String { macAddress ?? ipv4Address }
+    var aiIdentity: String {
+        stableHistoryKeys.first ?? "ip:\(ipv4Address)"
+    }
+
+    var stableHistoryKeys: [String] {
+        var keys: [String] = []
+        if let macAddress {
+            keys.append("mac:\(macAddress)")
+        }
+        if let hostname = hostname?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           !hostname.isEmpty {
+            keys.append("host:\(hostname)")
+        }
+        return keys
+    }
+
     var isUnknownForAIRecognition: Bool { hostname == nil && !isRouter && !isLocalDevice }
-    var isEligibleForAIRecognition: Bool { !isRouter && !isLocalDevice }
+    var isEligibleForAIRecognition: Bool { true }
 }
 
 // MARK: - Persistent Device History
 
 struct PersistedDeviceRecord: Codable, Sendable, Equatable {
-    let macAddress: String
+    var primaryKey: String
+    var macAddress: String?
     var lastKnownIPv4Address: String
     var hostname: String?
     var vendorName: String?
     var responseTimeMilliseconds: Double?
+    var pingTTL: Int?
     var isRouter: Bool
     var isLocalDevice: Bool
     var lastSeenAt: Date
     var aiRecognition: DeviceAIRecognition?
 
+    private enum CodingKeys: String, CodingKey {
+        case primaryKey
+        case macAddress
+        case lastKnownIPv4Address
+        case hostname
+        case vendorName
+        case responseTimeMilliseconds
+        case pingTTL
+        case isRouter
+        case isLocalDevice
+        case lastSeenAt
+        case aiRecognition
+    }
+
     init?(
         device: DiscoveredNetworkDevice,
         aiRecognition: DeviceAIRecognition?
     ) {
-        guard let macAddress = device.macAddress else { return nil }
-        self.macAddress = macAddress
+        guard let primaryKey = device.stableHistoryKeys.first else { return nil }
+        self.primaryKey = primaryKey
+        self.macAddress = device.macAddress
         self.lastKnownIPv4Address = device.ipv4Address
         self.hostname = device.hostname
         self.vendorName = device.vendorName
         self.responseTimeMilliseconds = device.responseTimeMilliseconds
+        self.pingTTL = device.pingTTL
         self.isRouter = device.isRouter
         self.isLocalDevice = device.isLocalDevice
         self.lastSeenAt = device.lastSeenAt
         self.aiRecognition = aiRecognition
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        macAddress = try container.decodeIfPresent(String.self, forKey: .macAddress)
+        hostname = try container.decodeIfPresent(String.self, forKey: .hostname)
+        primaryKey = try container.decodeIfPresent(String.self, forKey: .primaryKey)
+            ?? macAddress.map { "mac:\($0)" }
+            ?? hostname.map { "host:\($0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())" }
+            ?? ""
+        lastKnownIPv4Address = try container.decode(String.self, forKey: .lastKnownIPv4Address)
+        vendorName = try container.decodeIfPresent(String.self, forKey: .vendorName)
+        responseTimeMilliseconds = try container.decodeIfPresent(Double.self, forKey: .responseTimeMilliseconds)
+        pingTTL = try container.decodeIfPresent(Int.self, forKey: .pingTTL)
+        isRouter = try container.decode(Bool.self, forKey: .isRouter)
+        isLocalDevice = try container.decode(Bool.self, forKey: .isLocalDevice)
+        lastSeenAt = try container.decode(Date.self, forKey: .lastSeenAt)
+        aiRecognition = try container.decodeIfPresent(DeviceAIRecognition.self, forKey: .aiRecognition)
     }
 
     func enriching(_ device: DiscoveredNetworkDevice) -> DiscoveredNetworkDevice {
@@ -678,6 +776,7 @@ struct PersistedDeviceRecord: Codable, Sendable, Equatable {
         enriched.hostname = device.hostname ?? hostname
         enriched.vendorName = device.vendorName ?? vendorName
         enriched.responseTimeMilliseconds = device.responseTimeMilliseconds ?? responseTimeMilliseconds
+        enriched.pingTTL = device.pingTTL ?? pingTTL
         enriched.isRouter = device.isRouter || isRouter
         enriched.isLocalDevice = device.isLocalDevice || isLocalDevice
         return enriched
@@ -707,7 +806,19 @@ final class LocalDeviceHistoryStore: DeviceHistoryStoring, @unchecked Sendable {
         decoder.dateDecodingStrategy = .iso8601
         let file = try decoder.decode(DeviceHistoryFile.self, from: data)
         guard file.version == Self.currentVersion else { return [:] }
-        return Dictionary(uniqueKeysWithValues: file.records.map { ($0.macAddress, $0) })
+        var records: [String: PersistedDeviceRecord] = [:]
+        for record in file.records {
+            guard !record.primaryKey.isEmpty else { continue }
+            records[record.primaryKey] = record
+            if let macAddress = record.macAddress {
+                records["mac:\(macAddress)"] = record
+            }
+            if let hostname = record.hostname?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+               !hostname.isEmpty {
+                records["host:\(hostname)"] = record
+            }
+        }
+        return records
     }
 
     func save(_ records: [String: PersistedDeviceRecord]) throws {
@@ -719,7 +830,8 @@ final class LocalDeviceHistoryStore: DeviceHistoryStoring, @unchecked Sendable {
         )
         let file = DeviceHistoryFile(
             version: Self.currentVersion,
-            records: records.values.sorted { $0.macAddress < $1.macAddress }
+            records: Array(Dictionary(grouping: records.values, by: \.primaryKey).compactMap { $0.value.first })
+                .sorted { $0.primaryKey < $1.primaryKey }
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

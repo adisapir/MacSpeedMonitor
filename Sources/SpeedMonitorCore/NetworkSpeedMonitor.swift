@@ -100,7 +100,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
         do {
             let records = try deviceHistoryStore.load()
             self.persistedDeviceRecords = records
-            self.deviceHistoryRecordCount = records.count
+            self.deviceHistoryRecordCount = Set(records.values.map(\.primaryKey)).count
         } catch {
             self.persistedDeviceRecords = [:]
             self.deviceHistoryErrorDescription = error.localizedDescription
@@ -208,10 +208,10 @@ public final class NetworkSpeedMonitor: ObservableObject {
         portScanStates[address] = .scanning
         portScanTasks[address] = Task { [weak self] in
             do {
-                let ports = try await CommonPortScanner().scan(address: address)
+                let result = try await EnhancedDeviceScanner().scan(device: device)
                 try Task.checkCancellation()
                 guard let self, self.portScanIDs[address] == scanID else { return }
-                self.portScanStates[address] = .completed(ports)
+                self.portScanStates[address] = .completed(result)
                 self.portScanTasks[address] = nil
                 self.portScanIDs[address] = nil
             } catch is CancellationError {
@@ -283,8 +283,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
     private func mergeNetworkScanDevice(_ update: DiscoveredNetworkDevice) {
         var update = update
-        if let macAddress = update.macAddress,
-           let persisted = persistedDeviceRecords[macAddress] {
+        if let persisted = firstPersistedRecord(for: update) {
             update = persisted.enriching(update)
             if let recognition = persisted.aiRecognition {
                 aiRecognitionStates[update.aiIdentity] = .recognized(recognition)
@@ -379,15 +378,19 @@ public final class NetworkSpeedMonitor: ObservableObject {
         startAIRecognition(for: unknownDevicesForAIRecognition, unknownOnly: true)
     }
 
+    public func startAIRecognitionForAllDevices() {
+        startAIRecognition(for: networkScanDevices, unknownOnly: false)
+    }
+
     public func startAIRecognition(for device: DiscoveredNetworkDevice) {
         startAIRecognition(for: [device], unknownOnly: false)
     }
 
-    private func completedOpenPorts(for device: DiscoveredNetworkDevice) -> [OpenPort]? {
-        guard case .completed(let ports) = portScanStates[device.ipv4Address] else {
+    private func completedEnhancedScan(for device: DiscoveredNetworkDevice) -> DeviceEnhancedScanResult? {
+        guard case .completed(let result) = portScanStates[device.ipv4Address] else {
             return nil
         }
-        return ports
+        return result
     }
 
     public func cancelAIRecognition() {
@@ -446,7 +449,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
                     AIRecognitionInput(
                         itemID: "item-\(self.aiRecognitionCompletedCount + offset + 1)",
                         device: device,
-                        openPorts: self.completedOpenPorts(for: device)
+                        enhancedScan: self.completedEnhancedScan(for: device)
                     )
                 }
 
@@ -503,27 +506,32 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
     private func persistDeviceHistory() {
         for device in networkScanDevices {
-            guard let macAddress = device.macAddress else { continue }
             let currentRecognition: DeviceAIRecognition?
             if case .recognized(let recognition) = aiRecognitionStates[device.aiIdentity] {
                 currentRecognition = recognition
             } else {
-                currentRecognition = persistedDeviceRecords[macAddress]?.aiRecognition
+                currentRecognition = firstPersistedRecord(for: device)?.aiRecognition
             }
             guard let record = PersistedDeviceRecord(
                 device: device,
                 aiRecognition: currentRecognition
             ) else { continue }
-            persistedDeviceRecords[macAddress] = record
+            for key in device.stableHistoryKeys {
+                persistedDeviceRecords[key] = record
+            }
         }
 
         do {
             try deviceHistoryStore.save(persistedDeviceRecords)
-            deviceHistoryRecordCount = persistedDeviceRecords.count
+            deviceHistoryRecordCount = Set(persistedDeviceRecords.values.map(\.primaryKey)).count
             deviceHistoryErrorDescription = nil
         } catch {
             deviceHistoryErrorDescription = error.localizedDescription
         }
+    }
+
+    private func firstPersistedRecord(for device: DiscoveredNetworkDevice) -> PersistedDeviceRecord? {
+        device.stableHistoryKeys.lazy.compactMap { self.persistedDeviceRecords[$0] }.first
     }
 
     public func startWiFiScanning(refreshInterval: TimeInterval = 30) {

@@ -45,7 +45,11 @@ final class AIRecognitionTests: XCTestCase {
             AIRecognitionInput(
                 itemID: "item-1",
                 device: device,
-                openPorts: [OpenPort(port: 22, serviceName: "SSH")]
+                enhancedScan: DeviceEnhancedScanResult(
+                    openPorts: [OpenPort(port: 22, serviceName: "SSH")],
+                    pingTTL: 64,
+                    httpServerHeaders: [HTTPServerHeader(port: 80, value: "nginx")]
+                )
             ),
         ])
         XCTAssertEqual(result.count, 1)
@@ -94,22 +98,27 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(result[0].method, .googleGemini)
     }
 
-    func testRecognitionInputIncludesCompletedPortScanResultsWhenProvided() throws {
+    func testRecognitionInputIncludesCompletedEnhancedScanResultsWhenProvided() throws {
         let device = try XCTUnwrap(DiscoveredNetworkDevice(
             ipv4Address: "192.168.50.44",
             hostname: "living-room-speaker.local",
             macAddress: "AA:BB:CC:DD:EE:FF",
             vendorName: "Example Vendor",
-            responseTimeMilliseconds: 3.27
+            responseTimeMilliseconds: 3.27,
+            pingTTL: 64
         ))
 
         let input = AIRecognitionInput(
             itemID: "item-1",
             device: device,
-            openPorts: [
-                OpenPort(port: 22, serviceName: "SSH"),
-                OpenPort(port: 8080, serviceName: "HTTP Alt"),
-            ]
+            enhancedScan: DeviceEnhancedScanResult(
+                openPorts: [
+                    OpenPort(port: 22, serviceName: "SSH"),
+                    OpenPort(port: 8080, serviceName: "HTTP Alt"),
+                ],
+                pingTTL: 64,
+                httpServerHeaders: [HTTPServerHeader(port: 8080, value: "Apache")]
+            )
         )
         let data = try JSONEncoder().encode(input)
         let text = String(decoding: data, as: UTF8.self)
@@ -121,6 +130,9 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertTrue(text.contains("\"serviceName\":\"SSH\""))
         XCTAssertTrue(text.contains("\"port\":8080"))
         XCTAssertTrue(text.contains("\"serviceName\":\"HTTP Alt\""))
+        XCTAssertTrue(text.contains("\"pingTTL\":64"))
+        XCTAssertTrue(text.contains("\"httpServerHeaders\""))
+        XCTAssertTrue(text.contains("\"value\":\"Apache\""))
     }
 
     func testDebugPromptsShowAgentAndPreserveRedactedDeviceMetadata() throws {
@@ -318,10 +330,16 @@ final class AIRecognitionTests: XCTestCase {
             ipv4Address: "192.168.1.1",
             isRouter: true
         ))
+        let localDevice = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.2",
+            hostname: "My-Device",
+            isLocalDevice: true
+        ))
 
         XCTAssertEqual(unknownDevice.displayName(aiState: state), "Smart speaker")
         XCTAssertEqual(namedDevice.displayName(aiState: state), "printer.local")
         XCTAssertEqual(router.displayName(aiState: state), "Router")
+        XCTAssertEqual(localDevice.displayName(aiState: state), "My-Device (Smart Speaker)")
         XCTAssertEqual(unknownDevice.displayName(aiState: .analyzing), "Unknown Device")
 
         let blankRecognition = DeviceAIRecognition(
@@ -463,9 +481,10 @@ final class AIRecognitionTests: XCTestCase {
             aiRecognition: resolvedRecognition
         ))
 
-        try store.save([record.macAddress: record])
+        try store.save([record.primaryKey: record])
         let loaded = try store.load()
-        let loadedRecord = try XCTUnwrap(loaded[record.macAddress])
+        let loadedRecord = try XCTUnwrap(loaded[record.primaryKey])
+        XCTAssertEqual(loadedRecord.primaryKey, "mac:AA:BB:CC:DD:EE:FF")
         XCTAssertEqual(loadedRecord.macAddress, record.macAddress)
         XCTAssertEqual(loadedRecord.hostname, record.hostname)
         XCTAssertEqual(loadedRecord.vendorName, record.vendorName)
@@ -481,11 +500,11 @@ final class AIRecognitionTests: XCTestCase {
             ipv4Address: "192.168.1.87",
             macAddress: "AA:BB:CC:DD:EE:FF"
         ))
-        let enriched = try XCTUnwrap(loaded[record.macAddress]?.enriching(rediscovered))
+        let enriched = try XCTUnwrap(loaded[record.primaryKey]?.enriching(rediscovered))
         XCTAssertEqual(enriched.ipv4Address, "192.168.1.87")
         XCTAssertEqual(enriched.hostname, "living-room-device.local")
         XCTAssertEqual(enriched.vendorName, "Example Vendor")
-        XCTAssertEqual(loaded[record.macAddress]?.aiRecognition, resolvedRecognition)
+        XCTAssertEqual(loaded[record.primaryKey]?.aiRecognition, resolvedRecognition)
 
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
         let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
@@ -495,7 +514,7 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
-    func testDeviceWithoutMACCannotBecomePersistentRecord() throws {
+    func testDeviceWithoutStableIdentifierCannotBecomePersistentRecord() throws {
         let device = try XCTUnwrap(DiscoveredNetworkDevice(ipv4Address: "10.0.0.8"))
         XCTAssertNil(PersistedDeviceRecord(device: device, aiRecognition: nil))
     }

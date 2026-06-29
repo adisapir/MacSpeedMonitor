@@ -41,6 +41,7 @@ public struct DiscoveredNetworkDevice: Codable, Sendable, Identifiable, Hashable
     public var macAddress: String?
     public var vendorName: String?
     public var responseTimeMilliseconds: Double?
+    public var pingTTL: Int?
     public var isRouter: Bool
     public var isLocalDevice: Bool
     public var lastSeenAt: Date
@@ -52,6 +53,7 @@ public struct DiscoveredNetworkDevice: Codable, Sendable, Identifiable, Hashable
         macAddress: String? = nil,
         vendorName: String? = nil,
         responseTimeMilliseconds: Double? = nil,
+        pingTTL: Int? = nil,
         isRouter: Bool = false,
         isLocalDevice: Bool = false,
         lastSeenAt: Date = Date(),
@@ -63,6 +65,7 @@ public struct DiscoveredNetworkDevice: Codable, Sendable, Identifiable, Hashable
         self.macAddress = Self.normalizedMACAddress(macAddress)
         self.vendorName = vendorName?.nilIfEmpty
         self.responseTimeMilliseconds = responseTimeMilliseconds
+        self.pingTTL = pingTTL
         self.isRouter = isRouter
         self.isLocalDevice = isLocalDevice
         self.lastSeenAt = lastSeenAt
@@ -187,7 +190,7 @@ public enum NetworkScanPhase: Sendable, Equatable {
     case failed(String)
 }
 
-struct OpenPort: Sendable, Equatable, Hashable, Identifiable {
+struct OpenPort: Codable, Sendable, Equatable, Hashable, Identifiable {
     let port: UInt16
     let serviceName: String
 
@@ -197,13 +200,31 @@ struct OpenPort: Sendable, Equatable, Hashable, Identifiable {
 
 enum DevicePortScanState: Sendable, Equatable {
     case scanning
-    case completed([OpenPort])
+    case completed(DeviceEnhancedScanResult)
     case failed(String)
 
     var isScanning: Bool {
         if case .scanning = self { return true }
         return false
     }
+}
+
+struct DeviceEnhancedScanResult: Codable, Sendable, Equatable, Hashable {
+    var openPorts: [OpenPort]
+    var pingTTL: Int?
+    var httpServerHeaders: [HTTPServerHeader]
+
+    var hasMetadata: Bool {
+        !openPorts.isEmpty || pingTTL != nil || !httpServerHeaders.isEmpty
+    }
+}
+
+struct HTTPServerHeader: Codable, Sendable, Equatable, Hashable, Identifiable {
+    let port: UInt16
+    let value: String
+
+    var id: UInt16 { port }
+    var displayName: String { "\(port) \(value)" }
 }
 
 struct CommonPortScanner: Sendable {
@@ -317,6 +338,106 @@ struct CommonPortScanner: Sendable {
     }
 }
 
+struct EnhancedDeviceScanner: Sendable {
+    private let portScanner: CommonPortScanner
+    private let httpHeaderProbe: @Sendable (String, UInt16, Int32) -> String?
+
+    init(
+        portScanner: CommonPortScanner = CommonPortScanner(),
+        httpHeaderProbe: (@Sendable (String, UInt16, Int32) -> String?)? = nil
+    ) {
+        self.portScanner = portScanner
+        self.httpHeaderProbe = httpHeaderProbe ?? Self.httpServerHeader
+    }
+
+    nonisolated func scan(device: DiscoveredNetworkDevice) async throws -> DeviceEnhancedScanResult {
+        let ports = try await portScanner.scan(address: device.ipv4Address)
+        let httpHeaders = try await httpServerHeaders(
+            address: device.ipv4Address,
+            openPorts: ports
+        )
+        return DeviceEnhancedScanResult(
+            openPorts: ports,
+            pingTTL: device.pingTTL,
+            httpServerHeaders: httpHeaders
+        )
+    }
+
+    nonisolated private func httpServerHeaders(
+        address: String,
+        openPorts: [OpenPort]
+    ) async throws -> [HTTPServerHeader] {
+        let httpPorts = Set<UInt16>([80, 3000, 5000, 8000, 8080])
+        let candidates = openPorts.filter { httpPorts.contains($0.port) }
+        guard !candidates.isEmpty else { return [] }
+
+        return try await withThrowingTaskGroup(of: HTTPServerHeader?.self) { group in
+            for candidate in candidates {
+                group.addTask {
+                    try Task.checkCancellation()
+                    guard let value = httpHeaderProbe(address, candidate.port, 450) else { return nil }
+                    return HTTPServerHeader(port: candidate.port, value: value)
+                }
+            }
+
+            var headers: [HTTPServerHeader] = []
+            for try await header in group {
+                if let header { headers.append(header) }
+            }
+            return headers.sorted { $0.port < $1.port }
+        }
+    }
+
+    nonisolated private static func httpServerHeader(
+        address: String,
+        port: UInt16,
+        timeoutMilliseconds: Int32
+    ) -> String? {
+        let descriptor = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+
+        var timeout = timeval(
+            tv_sec: Int(timeoutMilliseconds / 1000),
+            tv_usec: suseconds_t(timeoutMilliseconds % 1000) * 1000
+        )
+        setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
+        var destination = sockaddr_in()
+        destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        destination.sin_family = sa_family_t(AF_INET)
+        destination.sin_port = port.bigEndian
+        guard address.withCString({ inet_pton(AF_INET, $0, &destination.sin_addr) }) == 1 else {
+            return nil
+        }
+
+        let connected = withUnsafePointer(to: &destination) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connected == 0 else { return nil }
+
+        let request = "HEAD / HTTP/1.1\r\nHost: \(address)\r\nConnection: close\r\n\r\n"
+        guard request.withCString({ send(descriptor, $0, strlen($0), 0) }) > 0 else {
+            return nil
+        }
+
+        var buffer = [UInt8](repeating: 0, count: 2048)
+        let received = recv(descriptor, &buffer, buffer.count, 0)
+        guard received > 0 else { return nil }
+
+        let response = String(decoding: buffer.prefix(Int(received)), as: UTF8.self)
+        return response
+            .components(separatedBy: "\r\n")
+            .first { $0.range(of: "Server:", options: [.caseInsensitive, .anchored]) != nil }?
+            .dropFirst("Server:".count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+}
+
 protocol NetworkScanning: Sendable {
     func scan(request: NetworkScanRequest) -> AsyncThrowingStream<NetworkScanEvent, Error>
 }
@@ -388,6 +509,7 @@ struct LocalNetworkScanner: NetworkScanning {
                                         macAddress: result.macAddress,
                                         vendorName: Self.vendorName(for: result.macAddress),
                                         responseTimeMilliseconds: result.responseTimeMilliseconds,
+                                        pingTTL: result.pingTTL,
                                         isRouter: result.address == request.routerIPv4Address,
                                         lastSeenAt: Date()
                                     ) {
@@ -520,10 +642,12 @@ struct LocalNetworkScanner: NetworkScanning {
         }
 
         let elapsed = DispatchTime.now().uptimeNanoseconds - startedAt
+        let pingTTL = containsIPv4Header && received > 8 ? Int(response[8]) : nil
         return ProbeResult(
             address: address,
             responseTimeMilliseconds: Double(elapsed) / 1_000_000,
-            macAddress: neighborMACAddress(for: address)
+            macAddress: neighborMACAddress(for: address),
+            pingTTL: pingTTL
         )
     }
 
@@ -847,6 +971,7 @@ struct NetworkScanDeviceStore: Sendable {
         current.macAddress = update.macAddress ?? current.macAddress
         current.vendorName = update.vendorName ?? current.vendorName
         current.responseTimeMilliseconds = update.responseTimeMilliseconds ?? current.responseTimeMilliseconds
+        current.pingTTL = update.pingTTL ?? current.pingTTL
         current.isRouter = current.isRouter || update.isRouter
         current.isLocalDevice = current.isLocalDevice || update.isLocalDevice
         current.lastSeenAt = update.lastSeenAt
@@ -874,12 +999,14 @@ private struct ProbeResult: Sendable {
     let address: String
     let responseTimeMilliseconds: Double?
     let macAddress: String?
+    let pingTTL: Int?
     var isReachable: Bool { responseTimeMilliseconds != nil }
 
-    init(address: String, responseTimeMilliseconds: Double?, macAddress: String? = nil) {
+    init(address: String, responseTimeMilliseconds: Double?, macAddress: String? = nil, pingTTL: Int? = nil) {
         self.address = address
         self.responseTimeMilliseconds = responseTimeMilliseconds
         self.macAddress = macAddress
+        self.pingTTL = pingTTL
     }
 }
 

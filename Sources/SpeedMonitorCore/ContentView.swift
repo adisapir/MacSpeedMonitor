@@ -850,13 +850,19 @@ private enum NetworkDeviceSortField: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
+private enum PendingAIRecognitionTarget: Equatable {
+    case unknownDevices
+    case allDevices
+    case device(String)
+}
+
 struct NetworkInfoView: View {
     @EnvironmentObject private var monitor: NetworkSpeedMonitor
     @StateObject private var localNetworkPermission = LocalNetworkPermissionManager()
     @AppStorage("aiRecognitionPrivacyAccepted") private var aiPrivacyAccepted = false
     @AppStorage("geminiRecognitionPrivacyAccepted") private var geminiPrivacyAccepted = false
     @State private var showingAIPrivacyDisclosure = false
-    @State private var pendingAIIdentity: String?
+    @State private var pendingAITarget: PendingAIRecognitionTarget = .unknownDevices
     @State private var pendingExternalAIMethod: AIRecognitionMethod?
     @State private var deviceSortField: NetworkDeviceSortField = .ipAddress
     @State private var deviceSortDirection: SortDirection = .ascending
@@ -1048,8 +1054,8 @@ struct NetworkInfoView: View {
                         HelpItem(term: "Privacy", explanation: "Devices with a hardware address are saved to a local Application Support file so later scans can restore details. History is never uploaded or used for analytics."),
                         HelpItem(term: "Visibility", explanation: "Firewalls, sleeping devices, guest-network isolation, and router settings can prevent devices from appearing."),
                         HelpItem(term: "Optional details", explanation: "Hostname, hardware address, manufacturer, and response time appear only when macOS and the device make them available."),
-                        HelpItem(term: "Scan range", explanation: "Only the directly connected private IPv4 network is checked, with a maximum of 256 addresses. Service ports are checked only when you choose Find Open Ports for one device."),
-                        HelpItem(term: "Open ports", explanation: "Find Open Ports checks a short list of common TCP services with brief connection attempts. It does not sweep all 65,535 ports or inspect any traffic."),
+                        HelpItem(term: "Scan range", explanation: "Only the directly connected private IPv4 network is checked, with a maximum of 256 addresses. Device metadata is checked only when you choose Enhanced Scan for one device."),
+                        HelpItem(term: "Enhanced Scan", explanation: "Enhanced Scan checks common TCP services, ping TTL, and quick HTTP server headers. It does not sweep all 65,535 ports or inspect traffic."),
                     ]
                 )
 
@@ -1090,7 +1096,7 @@ struct NetworkInfoView: View {
                         total: Double(max(monitor.aiRecognitionTotalCount, 1))
                     )
                     .accessibilityLabel("AI device recognition progress")
-                    Text("Recognizing \(monitor.aiRecognitionCompletedCount) of \(monitor.aiRecognitionTotalCount) unknown devices")
+                    Text("Recognizing \(monitor.aiRecognitionCompletedCount) of \(monitor.aiRecognitionTotalCount) devices")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1120,9 +1126,7 @@ struct NetworkInfoView: View {
                             copyAction: copyToClipboard,
                             findOpenPortsAction: { monitor.startPortScan(for: device) },
                             cancelPortScanAction: { monitor.cancelPortScan(for: device.ipv4Address) },
-                            recognizeAction: device.isEligibleForAIRecognition
-                                ? { requestAIRecognition(for: device) }
-                                : nil
+                            recognizeAction: { requestAIRecognition(.device(device.aiIdentity)) }
                         )
                     }
                 }
@@ -1132,7 +1136,7 @@ struct NetworkInfoView: View {
         .padding(.bottom, 20)
         .alert("Use \(privacyDisclosureProviderName) Device Recognition?", isPresented: $showingAIPrivacyDisclosure) {
             Button("Cancel", role: .cancel) {
-                pendingAIIdentity = nil
+                pendingAITarget = .unknownDevices
                 pendingExternalAIMethod = nil
             }
             Button("Continue") {
@@ -1254,8 +1258,17 @@ struct NetworkInfoView: View {
             .buttonStyle(.bordered)
             .disabled(monitor.networkScanPhase == .scanning)
         } else {
-            Button {
-                requestAIRecognition(for: nil)
+            Menu {
+                Button {
+                    requestAIRecognition(.unknownDevices)
+                } label: {
+                    Label("Unknown Devices (Default)", systemImage: "questionmark.diamond")
+                }
+                Button {
+                    requestAIRecognition(.allDevices)
+                } label: {
+                    Label("All Devices", systemImage: "network")
+                }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles")
@@ -1268,7 +1281,7 @@ struct NetworkInfoView: View {
                             )
                         )
 
-                    Text("AI Scan (\(monitor.unknownDevicesForAIRecognition.count))")
+                    Text("AI Scan")
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
@@ -1288,18 +1301,18 @@ struct NetworkInfoView: View {
             .buttonStyle(.plain)
             .disabled(
                 monitor.networkScanPhase == .scanning
-                    || monitor.unknownDevicesForAIRecognition.isEmpty
+                    || monitor.networkScanDevices.isEmpty
             )
         }
     }
 
-    private func requestAIRecognition(for device: DiscoveredNetworkDevice?) {
+    private func requestAIRecognition(_ target: PendingAIRecognitionTarget) {
         monitor.refreshSelectedAIRecognitionCredentials()
         guard monitor.selectedAIRecognitionAvailability.isAvailable else {
             NotificationCenter.default.post(name: .selectTabNotification, object: ContentView.Tab.settings)
             return
         }
-        pendingAIIdentity = device?.aiIdentity
+        pendingAITarget = target
         let method = monitor.selectedAIRecognitionMethod
         let privacyAccepted = method == .appleOnDevice
             || (method == .openAI && aiPrivacyAccepted)
@@ -1313,13 +1326,20 @@ struct NetworkInfoView: View {
     }
 
     private func performPendingAIRecognition() {
-        if let identity = pendingAIIdentity,
-           let device = monitor.networkScanDevices.first(where: { $0.aiIdentity == identity }) {
+        switch pendingAITarget {
+        case .device(let identity):
+            guard let device = monitor.networkScanDevices.first(where: { $0.aiIdentity == identity }) else {
+                pendingAITarget = .unknownDevices
+                pendingExternalAIMethod = nil
+                return
+            }
             monitor.startAIRecognition(for: device)
-        } else {
+        case .allDevices:
+            monitor.startAIRecognitionForAllDevices()
+        case .unknownDevices:
             monitor.startAIRecognitionForUnknownDevices()
         }
-        pendingAIIdentity = nil
+        pendingAITarget = .unknownDevices
         pendingExternalAIMethod = nil
     }
 
@@ -1403,7 +1423,7 @@ private struct NetworkDeviceRow: View {
     let copyAction: (String) -> Void
     let findOpenPortsAction: () -> Void
     let cancelPortScanAction: () -> Void
-    let recognizeAction: (() -> Void)?
+    let recognizeAction: () -> Void
     @State private var isAIInsightExpanded = false
 
     var body: some View {
@@ -1425,6 +1445,9 @@ private struct NetworkDeviceRow: View {
                         }
                         if device.isLocalDevice {
                             badge("This Mac", color: .blue)
+                        }
+                        if let aiDeviceType, !resolvedDisplayName.localizedCaseInsensitiveContains(aiDeviceType) {
+                            badge(aiDeviceType, color: .purple)
                         }
                         if device.isStale {
                             badge("Previous Scan", color: .gray)
@@ -1471,23 +1494,21 @@ private struct NetworkDeviceRow: View {
                 Button(role: .cancel) {
                     cancelPortScanAction()
                 } label: {
-                    Label("Cancel Port Scan", systemImage: "xmark.circle")
+                    Label("Cancel Enhanced Scan", systemImage: "xmark.circle")
                 }
             } else {
                 Button {
                     findOpenPortsAction()
                 } label: {
-                    Label("Find Open Ports", systemImage: "network.badge.shield.half.filled")
+                    Label("Enhanced Scan", systemImage: "network.badge.shield.half.filled")
                 }
                 .disabled(!canFindOpenPorts)
             }
-            if let recognizeAction {
-                Divider()
-                Button {
-                    recognizeAction()
-                } label: {
-                    Label("Recognize Device through AI", systemImage: "sparkles")
-                }
+            Divider()
+            Button {
+                recognizeAction()
+            } label: {
+                Label("Recognize Device through AI", systemImage: "sparkles")
             }
         }
         .onChange(of: aiState) { _, state in
@@ -1503,18 +1524,31 @@ private struct NetworkDeviceRow: View {
             case .scanning:
                 HStack(spacing: 7) {
                     ProgressView().controlSize(.small)
-                    Text("Scanning common TCP ports...")
+                    Text("Running enhanced scan...")
                         .foregroundStyle(.secondary)
                 }
                 .font(.caption)
-            case .completed(let ports):
-                detail(
-                    "Open Ports",
-                    value: ports.isEmpty ? "None found" : ports.map(\.displayName).joined(separator: ", ")
-                )
+            case .completed(let result):
+                VStack(alignment: .leading, spacing: 3) {
+                    detail(
+                        "Open Ports",
+                        value: result.openPorts.isEmpty
+                            ? "None found"
+                            : result.openPorts.map(\.displayName).joined(separator: ", ")
+                    )
+                    if let pingTTL = result.pingTTL {
+                        detail("Ping TTL", value: "\(pingTTL)")
+                    }
+                    if !result.httpServerHeaders.isEmpty {
+                        detail(
+                            "HTTP Server",
+                            value: result.httpServerHeaders.map(\.displayName).joined(separator: ", ")
+                        )
+                    }
+                }
                 .textSelection(.enabled)
             case .failed(let message):
-                Label("Port scan failed: \(message)", systemImage: "exclamationmark.triangle.fill")
+                Label("Enhanced scan failed: \(message)", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -1613,8 +1647,13 @@ private struct NetworkDeviceRow: View {
         var values = [resolvedDisplayName, "IP: \(device.ipv4Address)"]
         if let macAddress = device.macAddress { values.append("MAC: \(macAddress)") }
         if let vendorName = device.vendorName { values.append("Vendor: \(vendorName)") }
-        if case .completed(let ports) = portScanState {
-            values.append("Open Ports: \(ports.isEmpty ? "None found" : ports.map(\.displayName).joined(separator: ", "))")
+        if let pingTTL = device.pingTTL { values.append("Ping TTL: \(pingTTL)") }
+        if case .completed(let result) = portScanState {
+            values.append("Open Ports: \(result.openPorts.isEmpty ? "None found" : result.openPorts.map(\.displayName).joined(separator: ", "))")
+            if let pingTTL = result.pingTTL { values.append("Ping TTL: \(pingTTL)") }
+            if !result.httpServerHeaders.isEmpty {
+                values.append("HTTP Server: \(result.httpServerHeaders.map(\.displayName).joined(separator: ", "))")
+            }
         }
         if let responseTime = device.responseTimeMilliseconds {
             values.append(String(format: "Response: %.1f ms", responseTime))
@@ -1628,8 +1667,12 @@ private struct NetworkDeviceRow: View {
         if device.isLocalDevice { values.append("This Mac") }
         if device.isStale { values.append("From previous scan") }
         if let vendorName = device.vendorName { values.append("Vendor \(vendorName)") }
-        if case .completed(let ports) = portScanState {
-            values.append(ports.isEmpty ? "No common open ports found" : "Open ports \(ports.map(\.displayName).joined(separator: ", "))")
+        if let pingTTL = device.pingTTL { values.append("Ping TTL \(pingTTL)") }
+        if case .completed(let result) = portScanState {
+            values.append(result.openPorts.isEmpty ? "No common open ports found" : "Open ports \(result.openPorts.map(\.displayName).joined(separator: ", "))")
+            if !result.httpServerHeaders.isEmpty {
+                values.append("HTTP server \(result.httpServerHeaders.map(\.displayName).joined(separator: ", "))")
+            }
         }
         if let responseTime = device.responseTimeMilliseconds {
             values.append(String(format: "Response time %.1f milliseconds", responseTime))
@@ -1643,6 +1686,11 @@ private struct NetworkDeviceRow: View {
 
     private var isUsingAISuggestedName: Bool {
         device.displayName == "Unknown Device" && resolvedDisplayName != device.displayName
+    }
+
+    private var aiDeviceType: String? {
+        guard case .recognized(let recognition) = aiState else { return nil }
+        return recognition.deviceTypeDisplayName
     }
 }
 
