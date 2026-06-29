@@ -1,5 +1,17 @@
 # Change Log
 
+## 2026-06-29
+
+- Added an enhanced device scan that gathers ping TTL and HTTP server header details, with the option to scan unknown devices only or all devices.
+- Included enhanced scan results in AI recognition requests to improve device identification.
+- Improved device display names using the recognized device type, and surfaced the AI-detected type as a badge.
+- Refined AI scan request logging format.
+
+## 2026-06-24
+
+- Embedded the change log in the app and displayed it in the About view with refined formatting.
+- Added menu-bar display of current upload and download speeds.
+
 ## 2026-06-23
 
 - Added local network port scanning and included completed port results in AI recognition requests.
