@@ -518,6 +518,27 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
+    func testLoadCreatesEmptyHistoryFileWhenMissing() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MacSpeedMonitor-history-\(UUID().uuidString)")
+        let fileURL = directory.appendingPathComponent("device-history.json")
+        let store = LocalDeviceHistoryStore(fileURL: fileURL)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+
+        let records = try store.load()
+        XCTAssertTrue(records.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+
+        // The created file is valid and reloads as an empty history.
+        XCTAssertTrue(try store.load().isEmpty)
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
+        XCTAssertEqual(permissions.map { $0 & 0o777 }, 0o600)
+    }
+
     func testDeviceWithoutStableIdentifierCannotBecomePersistentRecord() throws {
         let device = try XCTUnwrap(DiscoveredNetworkDevice(ipv4Address: "10.0.0.8"))
         XCTAssertNil(PersistedDeviceRecord(device: device, aiRecognition: nil))

@@ -805,7 +805,11 @@ final class LocalDeviceHistoryStore: DeviceHistoryStoring, @unchecked Sendable {
     }
 
     func load() throws -> [String: PersistedDeviceRecord] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [:] }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            // First run: create an empty history file so it exists on disk.
+            try save([:])
+            return [:]
+        }
         let data = try Data(contentsOf: fileURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
