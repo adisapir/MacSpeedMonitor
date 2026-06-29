@@ -59,6 +59,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
     private let aiRecognitionProviders: [AIRecognitionMethod: any AIRecognitionProviding]
     private let aiRecognitionPreferences: UserDefaults
     private let deviceHistoryStore: any DeviceHistoryStoring
+    private let enhancedScanProvider: @Sendable (DiscoveredNetworkDevice) async throws -> DeviceEnhancedScanResult
     private var persistedDeviceRecords: [String: PersistedDeviceRecord]
     private var previousSnapshot: InterfaceSnapshot?
     private let samplingInterval: TimeInterval
@@ -81,7 +82,10 @@ public final class NetworkSpeedMonitor: ObservableObject {
         samplingInterval: TimeInterval,
         aiRecognitionProvider: any AIRecognitionProviding,
         deviceHistoryStore: any DeviceHistoryStoring = LocalDeviceHistoryStore.shared,
-        aiRecognitionPreferences: UserDefaults = .standard
+        aiRecognitionPreferences: UserDefaults = .standard,
+        enhancedScanProvider: @escaping @Sendable (DiscoveredNetworkDevice) async throws -> DeviceEnhancedScanResult = {
+            try await EnhancedDeviceScanner().scan(device: $0)
+        }
     ) {
         var providers = AIRecognitionProviderFactory.providers()
         providers[aiRecognitionProvider.method] = aiRecognitionProvider
@@ -89,6 +93,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
         self.aiRecognitionProviders = providers
         self.aiRecognitionPreferences = aiRecognitionPreferences
         self.deviceHistoryStore = deviceHistoryStore
+        self.enhancedScanProvider = enhancedScanProvider
         let initialMethod = AIRecognitionMethodSelection.initialMethod(
             storedRawValue: aiRecognitionPreferences.string(forKey: Self.aiRecognitionMethodPreferenceKey),
             appleAvailability: providers[.appleOnDevice]?.availability
@@ -208,9 +213,10 @@ public final class NetworkSpeedMonitor: ObservableObject {
         portScanStates[address] = .scanning
         portScanTasks[address] = Task { [weak self] in
             do {
-                let result = try await EnhancedDeviceScanner().scan(device: device)
+                guard let self else { return }
+                let result = try await self.enhancedScanProvider(device)
                 try Task.checkCancellation()
-                guard let self, self.portScanIDs[address] == scanID else { return }
+                guard self.portScanIDs[address] == scanID else { return }
                 self.portScanStates[address] = .completed(result)
                 self.portScanTasks[address] = nil
                 self.portScanIDs[address] = nil
@@ -442,6 +448,16 @@ public final class NetworkSpeedMonitor: ObservableObject {
 
             for batch in batches {
                 if Task.isCancelled { return }
+                await self.runMissingEnhancedScansBeforeAI(
+                    for: batch,
+                    recognitionID: recognitionID,
+                    generation: generation
+                )
+                guard self.aiRecognitionID == recognitionID,
+                      self.networkScanGeneration == generation,
+                      !Task.isCancelled
+                else { return }
+
                 let mappings = Dictionary(uniqueKeysWithValues: batch.enumerated().map { offset, device in
                     ("item-\(self.aiRecognitionCompletedCount + offset + 1)", device.aiIdentity)
                 })
@@ -504,6 +520,38 @@ public final class NetworkSpeedMonitor: ObservableObject {
                 self.isAIRecognitionRunning = false
                 self.aiRecognitionTask = nil
                 self.aiRecognitionID = nil
+            }
+        }
+    }
+
+    private func runMissingEnhancedScansBeforeAI(
+        for devices: [DiscoveredNetworkDevice],
+        recognitionID: UUID,
+        generation: UUID
+    ) async {
+        for device in devices where device.isUnknownForAIRecognition && completedEnhancedScan(for: device) == nil {
+            guard aiRecognitionID == recognitionID,
+                  networkScanGeneration == generation,
+                  !Task.isCancelled
+            else { return }
+
+            let address = device.ipv4Address
+            portScanStates[address] = .scanning
+
+            do {
+                let result = try await enhancedScanProvider(device)
+                try Task.checkCancellation()
+                guard aiRecognitionID == recognitionID,
+                      networkScanGeneration == generation
+                else { return }
+                portScanStates[address] = .completed(result)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard aiRecognitionID == recognitionID,
+                      networkScanGeneration == generation
+                else { return }
+                portScanStates[address] = .failed(error.localizedDescription)
             }
         }
     }
