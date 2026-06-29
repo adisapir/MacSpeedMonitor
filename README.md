@@ -67,3 +67,14 @@ Under **Settings > AI Device Recognition**, choose one of these methods:
 - **Google Gemini** — requires a [Gemini API key](https://aistudio.google.com/app/apikey).
 
 AI recognition is optional. Suggestions are clearly labeled and may not identify every device accurately.
+
+## Data Storage
+
+| Data | Location | Type |
+|------|----------|------|
+| Scan history + AI results | `~/Library/Application Support/MacSpeedMonitor/device-history.json` | User data (read/write) |
+| MAC/OUI vendor database | App bundle `Resources/oui-vendors.tsv` | Static, bundled, read-only |
+| AI API key | macOS Keychain (e.g. `com.adisapir.MacSpeedMonitor.openai`) | Secure credential |
+| App preferences | `UserDefaults` plist (`~/Library/Preferences/`) | Settings |
+
+The only persistent user-generated data is the single `device-history.json` file (device records keyed by MAC address, with restrictive `0600` permissions). There is no SQLite or Core Data store — deleting that file resets all remembered devices and AI recognitions.
