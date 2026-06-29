@@ -523,6 +523,61 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertNil(PersistedDeviceRecord(device: device, aiRecognition: nil))
     }
 
+    @MainActor
+    func testRecognizedDeviceIsNoLongerTreatedAsUnknownOnLaterScan() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MacSpeedMonitor-history-\(UUID().uuidString)")
+        let fileURL = directory.appendingPathComponent("device-history.json")
+        let store = LocalDeviceHistoryStore(fileURL: fileURL)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // A device with no hostname is intrinsically "unknown", but it was
+        // recognized on an earlier scan and that result was persisted by MAC.
+        let recognizedDevice = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.50",
+            macAddress: "AA:BB:CC:DD:EE:01"
+        ))
+        XCTAssertTrue(recognizedDevice.isUnknownForAIRecognition)
+        let recognition = DeviceAIRecognition(
+            itemID: "item-1",
+            suggestedName: "Smart speaker",
+            category: "Smart Home",
+            likelyPurpose: "Voice assistant",
+            confidence: .high,
+            rationale: "Vendor and open ports",
+            limitations: "Exact model unknown"
+        ).withResolvedSystemImageName()
+        let record = try XCTUnwrap(PersistedDeviceRecord(
+            device: recognizedDevice,
+            aiRecognition: recognition
+        ))
+        try store.save([record.primaryKey: record])
+
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "MacSpeedMonitorTests-\(UUID().uuidString)"))
+        let monitor = NetworkSpeedMonitor(
+            samplingInterval: 1,
+            aiRecognitionProvider: UnavailableAIRecognitionProvider(method: .openAI, reason: "test"),
+            deviceHistoryStore: store,
+            aiRecognitionPreferences: defaults
+        )
+
+        // Rediscover the same device (new IP, still no hostname) on a later scan.
+        let rediscovered = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.77",
+            macAddress: "AA:BB:CC:DD:EE:01"
+        ))
+        monitor.mergeNetworkScanDevice(rediscovered)
+
+        let merged = try XCTUnwrap(monitor.networkScanDevices.first)
+        // It is still hostname-less in isolation...
+        XCTAssertTrue(merged.isUnknownForAIRecognition)
+        // ...but it must not be queued for the unknown-only AI pass anymore.
+        XCTAssertTrue(monitor.unknownDevicesForAIRecognition.isEmpty)
+        // ...and the persisted recognition name is shown instead of "Unknown Device".
+        let aiState = monitor.aiRecognitionStates[merged.aiIdentity]
+        XCTAssertEqual(merged.displayName(aiState: aiState), "Smart speaker")
+    }
+
     private func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TestURLProtocol.self]

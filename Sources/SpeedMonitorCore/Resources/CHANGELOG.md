@@ -5,6 +5,7 @@
 - Added an enhanced device scan that gathers ping TTL and HTTP server header details, with the option to scan unknown devices only or all devices.
 - Included enhanced scan results in AI recognition requests to improve device identification.
 - Improved device display names using the recognized device type, and surfaced the AI-detected type as a badge.
+- Kept AI-recognized names for devices across later scans (matched by MAC address or hostname) and stopped re-treating already-recognized devices as unknown.
 - Refined AI scan request logging format.
 
 ## 2026-06-24

@@ -287,7 +287,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
     }
 
-    private func mergeNetworkScanDevice(_ update: DiscoveredNetworkDevice) {
+    func mergeNetworkScanDevice(_ update: DiscoveredNetworkDevice) {
         var update = update
         if let persisted = firstPersistedRecord(for: update) {
             update = persisted.enriching(update)
@@ -307,7 +307,23 @@ public final class NetworkSpeedMonitor: ObservableObject {
     }
 
     public var unknownDevicesForAIRecognition: [DiscoveredNetworkDevice] {
-        networkScanDevices.filter(\.isUnknownForAIRecognition)
+        networkScanDevices.filter(isAwaitingAIRecognition)
+    }
+
+    /// A device is treated as "unknown" only while it lacks an identifying
+    /// hostname and has no recognized AI result yet. Once it has been
+    /// recognized — either during this session or from persisted history
+    /// matched by MAC address or hostname — it is no longer eligible for the
+    /// unknown-only AI pass and keeps its recognized name.
+    private func isAwaitingAIRecognition(_ device: DiscoveredNetworkDevice) -> Bool {
+        device.isUnknownForAIRecognition && !hasRecognizedResult(for: device)
+    }
+
+    private func hasRecognizedResult(for device: DiscoveredNetworkDevice) -> Bool {
+        if case .recognized = aiRecognitionStates[device.aiIdentity] {
+            return true
+        }
+        return firstPersistedRecord(for: device)?.aiRecognition != nil
     }
 
     public func refreshAIRecognitionAvailability() {
@@ -425,7 +441,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
         }
 
         let devices = requestedDevices.filter {
-            unknownOnly ? $0.isUnknownForAIRecognition : $0.isEligibleForAIRecognition
+            unknownOnly ? isAwaitingAIRecognition($0) : $0.isEligibleForAIRecognition
         }
         guard !devices.isEmpty else { return }
         let recognitionID = UUID()
