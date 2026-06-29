@@ -1,12 +1,14 @@
-New:
-- fix version display
-- Embed changelog in About (change to .md?)
+Todo:
+- Look at reommendations for additional metadata fetching
+- For "Unknown" devices, activate metadata ^ + port scan before asking AI 
+- Add detected device time after hostname
+- Don't save history by IP to prevent false displayed results
 - Support update mechanism
 - Homebrew support
 - Website (generic)
     - New version distribution workflow (git actions a valid option?)
     - Rebuild doccolabs.com -> it's useless and legacy
-- Menu bar D/U support
+
 
 Fix:
 - Chart may temporarily freeze (unable to reproduce)
@@ -15,6 +17,10 @@ Fix:
 Done:
 - Radar animation sync
 - Add max values
+- fix version display
+- Embed changelog in About (change to .md?)
+- Menu bar D/U support
+
 
 Won't do (for now):
 - Publish to (AppStore?) public as a package
