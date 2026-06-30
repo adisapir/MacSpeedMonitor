@@ -44,6 +44,39 @@ final class NetworkScannerTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testLiveMonitorScanPersistsHistoryFile() async throws {
+        guard ProcessInfo.processInfo.environment["LIVE_NETWORK_SCAN"] == "1" else {
+            throw XCTSkip("Set LIVE_NETWORK_SCAN=1 to exercise the production monitor on the current LAN.")
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MacSpeedMonitor-history-\(UUID().uuidString)")
+        let fileURL = directory.appendingPathComponent("device-history.json")
+        let store = LocalDeviceHistoryStore(fileURL: fileURL)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "MacSpeedMonitorTests-\(UUID().uuidString)"))
+        let monitor = NetworkSpeedMonitor(
+            samplingInterval: 1,
+            aiRecognitionProvider: UnavailableAIRecognitionProvider(method: .openAI, reason: "test"),
+            deviceHistoryStore: store,
+            aiRecognitionPreferences: defaults
+        )
+
+        monitor.startNetworkScan()
+        let deadline = Date().addingTimeInterval(40)
+        while monitor.networkScanPhase == .scanning, Date() < deadline {
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
+
+        let reloaded = try store.load()
+        let primaryKeys = Set(reloaded.values.map(\.primaryKey))
+        print("Live monitor scan persisted \(primaryKeys.count) device records to history.")
+        XCTAssertEqual(monitor.networkScanPhase, .completed)
+        XCTAssertFalse(primaryKeys.isEmpty, "Completed monitor scan should persist discovered devices.")
+    }
+
     func testSlash24RequestDerivesExpectedRange() throws {
         let request = try NetworkScanRequest.make(
             interfaceName: "en0",

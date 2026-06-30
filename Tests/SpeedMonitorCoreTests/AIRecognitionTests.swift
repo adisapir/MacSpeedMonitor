@@ -539,6 +539,34 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertEqual(permissions.map { $0 & 0o777 }, 0o600)
     }
 
+    @MainActor
+    func testCompletedScanPersistsDiscoveredDeviceToHistoryFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MacSpeedMonitor-history-\(UUID().uuidString)")
+        let fileURL = directory.appendingPathComponent("device-history.json")
+        let store = LocalDeviceHistoryStore(fileURL: fileURL)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "MacSpeedMonitorTests-\(UUID().uuidString)"))
+        let monitor = NetworkSpeedMonitor(
+            samplingInterval: 1,
+            aiRecognitionProvider: UnavailableAIRecognitionProvider(method: .openAI, reason: "test"),
+            deviceHistoryStore: store,
+            aiRecognitionPreferences: defaults
+        )
+
+        let device = try XCTUnwrap(DiscoveredNetworkDevice(
+            ipv4Address: "192.168.1.40",
+            macAddress: "AA:BB:CC:DD:EE:99"
+        ))
+        monitor.handleNetworkScanEvent(.started(totalTargets: 1))
+        monitor.handleNetworkScanEvent(.device(device))
+        monitor.handleNetworkScanEvent(.completed(Date()))
+
+        let reloaded = try store.load()
+        XCTAssertNotNil(reloaded["mac:AA:BB:CC:DD:EE:99"], "completed scan should persist discovered device")
+    }
+
     func testDeviceWithoutStableIdentifierCannotBecomePersistentRecord() throws {
         let device = try XCTUnwrap(DiscoveredNetworkDevice(ipv4Address: "10.0.0.8"))
         XCTAssertNil(PersistedDeviceRecord(device: device, aiRecognition: nil))

@@ -257,7 +257,7 @@ public final class NetworkSpeedMonitor: ObservableObject {
         networkScanTask?.cancel()
     }
 
-    private func handleNetworkScanEvent(_ event: NetworkScanEvent) {
+    func handleNetworkScanEvent(_ event: NetworkScanEvent) {
         switch event {
         case .started(let totalTargets):
             networkScanTotalTargets = totalTargets

@@ -72,9 +72,11 @@ AI recognition is optional. Suggestions are clearly labeled and may not identify
 
 | Data | Location | Type |
 |------|----------|------|
-| Scan history + AI results | `~/Library/Application Support/MacSpeedMonitor/device-history.json` | User data (read/write) |
+| Scan history + AI results | `~/Library/Containers/com.adisapir.MacSpeedMonitor/Data/Library/Application Support/MacSpeedMonitor/device-history.json` | User data (read/write) |
 | MAC/OUI vendor database | App bundle `Resources/oui-vendors.tsv` | Static, bundled, read-only |
 | AI API key | macOS Keychain (e.g. `com.adisapir.MacSpeedMonitor.openai`) | Secure credential |
-| App preferences | `UserDefaults` plist (`~/Library/Preferences/`) | Settings |
+| App preferences | `UserDefaults` plist | Settings |
 
-The only persistent user-generated data is the single `device-history.json` file (device records keyed by MAC address, with restrictive `0600` permissions). There is no SQLite or Core Data store — deleting that file resets all remembered devices and AI recognitions.
+The only persistent user-generated data is the single `device-history.json` file (device records keyed by MAC address, with restrictive `0600` permissions). The app is sandboxed, so it lives in the app container shown above; an unsandboxed `swift run` build instead uses `~/Library/Application Support/MacSpeedMonitor/device-history.json`. It is created automatically on first launch and there is no SQLite or Core Data store — deleting it resets all remembered devices and AI recognitions.
+
+History is written when a scan **completes** (or after AI recognition finishes). If the file stays at `{ "records": [] }`, the running build hasn't yet completed a scan that discovered any devices — most commonly because the **Local Network** privacy permission has not been granted to that build.
