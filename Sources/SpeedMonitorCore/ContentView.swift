@@ -1446,8 +1446,8 @@ private struct NetworkDeviceRow: View {
                         if device.isLocalDevice {
                             badge("This Mac", color: .blue)
                         }
-                        if let aiDeviceType, !resolvedDisplayName.localizedCaseInsensitiveContains(aiDeviceType) {
-                            badge(aiDeviceType, color: .purple)
+                        if let aiDeviceTypeBadge {
+                            badge(aiDeviceTypeBadge, color: .purple)
                         }
                         if device.isStale {
                             badge("Previous Scan", color: .gray)
@@ -1691,6 +1691,17 @@ private struct NetworkDeviceRow: View {
     private var aiDeviceType: String? {
         guard case .recognized(let recognition) = aiState else { return nil }
         return recognition.deviceTypeDisplayName
+    }
+
+    /// The AI-suggested device-type badge to show, or `nil` when it would
+    /// duplicate the name or a badge already displayed — e.g. a recognized
+    /// router whose AI type is also "Router".
+    private var aiDeviceTypeBadge: String? {
+        guard let aiDeviceType else { return nil }
+        if resolvedDisplayName.localizedCaseInsensitiveContains(aiDeviceType) { return nil }
+        if device.isRouter, aiDeviceType.localizedCaseInsensitiveContains("Router") { return nil }
+        if device.isLocalDevice, aiDeviceType.caseInsensitiveCompare("This Mac") == .orderedSame { return nil }
+        return aiDeviceType
     }
 }
 
