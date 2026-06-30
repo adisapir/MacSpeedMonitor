@@ -1,82 +1,13 @@
 import Foundation
-import Security
 
-final class GeminiAPIKeyStore: APIKeyStoring, @unchecked Sendable {
+final class GeminiAPIKeyStore: KeychainAPIKeyStore, @unchecked Sendable {
     static let shared = GeminiAPIKeyStore()
-
-    private let service: String
-    private let account: String
 
     init(
         service: String = "com.adisapir.MacSpeedMonitor.gemini",
         account: String = "Google Gemini API Key"
     ) {
-        self.service = service
-        self.account = account
-    }
-
-    var hasKey: Bool {
-        var query = baseQuery
-        query[kSecReturnAttributes as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        return SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess
-    }
-
-    func loadKey() throws -> String? {
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let key = String(data: data, encoding: .utf8)
-        else { throw KeychainError(status) }
-        return key
-    }
-
-    func saveKey(_ key: String) throws {
-        let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { throw AIRecognitionError.missingAPIKey }
-        let data = Data(normalized.utf8)
-        let updateStatus = SecItemUpdate(
-            baseQuery as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
-        )
-        if updateStatus == errSecSuccess { return }
-        guard updateStatus == errSecItemNotFound else { throw KeychainError(updateStatus) }
-
-        var addition = baseQuery
-        addition[kSecValueData as String] = data
-        addition[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let addStatus = SecItemAdd(addition as CFDictionary, nil)
-        guard addStatus == errSecSuccess else { throw KeychainError(addStatus) }
-    }
-
-    func removeKey() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainError(status)
-        }
-    }
-
-    private var baseQuery: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-    }
-
-    private struct KeychainError: LocalizedError {
-        let status: OSStatus
-        init(_ status: OSStatus) { self.status = status }
-        var errorDescription: String? {
-            SecCopyErrorMessageString(status, nil) as String?
-                ?? "Keychain operation failed (\(status))."
-        }
+        super.init(service: service, account: account)
     }
 }
 

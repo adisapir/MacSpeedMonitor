@@ -396,30 +396,99 @@ protocol APIKeyStoring: Sendable {
     func removeKey() throws
 }
 
-final class OpenAIAPIKeyStore: APIKeyStoring, @unchecked Sendable {
-    static let shared = OpenAIAPIKeyStore()
-
+/// Stores an API key in the keychain while keeping system authorization prompts
+/// to a minimum.
+///
+/// - The key lives in the **data protection keychain**, which a signed, sandboxed
+///   app accesses silently — so no recurring "wants to use your confidential
+///   information" prompts during normal use.
+/// - The loaded value is **cached in memory**, so the keychain is read at most
+///   once per launch even though recognition requests ask for it repeatedly.
+/// - Keys saved by older versions (in the legacy file-based keychain) are
+///   **migrated automatically** on first read: copied into the data protection
+///   keychain and removed from the old one. This may surface a single system
+///   prompt once after upgrading, and never again.
+/// - When the data protection keychain is unavailable (for example an ad-hoc
+///   `swift run` build that lacks the required entitlement), it transparently
+///   falls back to the legacy keychain so development still works.
+class KeychainAPIKeyStore: APIKeyStoring, @unchecked Sendable {
     private let service: String
     private let account: String
+    private let missingKeyError: Error
+    private let lock = NSLock()
+    private var hasLoaded = false
+    private var cachedKey: String?
 
     init(
-        service: String = "com.adisapir.MacSpeedMonitor.openai",
-        account: String = "OpenAI API Key"
+        service: String,
+        account: String,
+        missingKeyError: Error = AIRecognitionError.missingAPIKey
     ) {
         self.service = service
         self.account = account
+        self.missingKeyError = missingKeyError
     }
 
-    var hasKey: Bool {
-        var query = baseQuery
-        query[kSecReturnAttributes as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        return SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess
-    }
+    var hasKey: Bool { (try? loadKey()) != nil }
 
     func loadKey() throws -> String? {
-        var query = baseQuery
+        lock.lock()
+        defer { lock.unlock() }
+        if hasLoaded { return cachedKey }
+
+        // Preferred location: the silent data protection keychain.
+        if useDataProtectionKeychain, let key = try readKey(useDataProtection: true) {
+            return cache(key)
+        }
+
+        // One-time migration of a key written by an older build.
+        if let legacyKey = try? readKey(useDataProtection: false) {
+            if useDataProtectionKeychain {
+                try? writeKey(legacyKey, useDataProtection: true)
+                try? deleteKey(useDataProtection: false)
+            }
+            return cache(legacyKey)
+        }
+
+        return cache(nil)
+    }
+
+    func saveKey(_ key: String) throws {
+        let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { throw missingKeyError }
+        lock.lock()
+        defer { lock.unlock() }
+        try writeKey(normalized, useDataProtection: useDataProtectionKeychain)
+        if useDataProtectionKeychain {
+            // Drop any stale copy left in the legacy keychain.
+            try? deleteKey(useDataProtection: false)
+        }
+        _ = cache(normalized)
+    }
+
+    func removeKey() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        try deleteKey(useDataProtection: useDataProtectionKeychain)
+        if useDataProtectionKeychain {
+            try? deleteKey(useDataProtection: false)
+        }
+        _ = cache(nil)
+    }
+
+    // MARK: - Cache
+
+    @discardableResult
+    private func cache(_ key: String?) -> String? {
+        cachedKey = key
+        hasLoaded = true
+        return key
+    }
+
+    // MARK: - Keychain primitives
+
+    private func readKey(useDataProtection: Bool) throws -> String? {
+        var query = baseQuery(useDataProtection: useDataProtection)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -432,40 +501,68 @@ final class OpenAIAPIKeyStore: APIKeyStoring, @unchecked Sendable {
         return key
     }
 
-    func saveKey(_ key: String) throws {
-        let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { throw AIRecognitionError.missingAPIKey }
-        let data = Data(normalized.utf8)
+    private func writeKey(_ key: String, useDataProtection: Bool) throws {
+        let data = Data(key.utf8)
         let updateStatus = SecItemUpdate(
-            baseQuery as CFDictionary,
+            baseQuery(useDataProtection: useDataProtection) as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
         )
         if updateStatus == errSecSuccess { return }
         guard updateStatus == errSecItemNotFound else { throw KeychainError(updateStatus) }
 
-        var addition = baseQuery
+        var addition = baseQuery(useDataProtection: useDataProtection)
         addition[kSecValueData as String] = data
         addition[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let addStatus = SecItemAdd(addition as CFDictionary, nil)
         guard addStatus == errSecSuccess else { throw KeychainError(addStatus) }
     }
 
-    func removeKey() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
+    private func deleteKey(useDataProtection: Bool) throws {
+        let status = SecItemDelete(baseQuery(useDataProtection: useDataProtection) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainError(status)
         }
     }
 
-    private var baseQuery: [String: Any] {
-        [
+    private func baseQuery(useDataProtection: Bool) -> [String: Any] {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        if useDataProtection {
+            query[kSecUseDataProtectionKeychain as String] = true
+        }
+        return query
     }
 
-    private struct KeychainError: LocalizedError {
+    /// Whether the data protection keychain can be used in this process. Signed,
+    /// sandboxed builds can; ad-hoc dev builds without the entitlement fall back
+    /// to the legacy keychain so `swift run` keeps working.
+    ///
+    /// Determined by attempting (and immediately removing) a throwaway item:
+    /// adding the app's own item to its data protection keychain is silent, and
+    /// the entitlement is only enforced on a write, so a read probe is not
+    /// reliable.
+    private lazy var useDataProtectionKeychain: Bool = {
+        let probe: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
+            kSecAttrService as String: "com.adisapir.MacSpeedMonitor.keychain-probe",
+            kSecAttrAccount as String: "probe",
+        ]
+        var addition = probe
+        addition[kSecValueData as String] = Data("probe".utf8)
+        addition[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(addition as CFDictionary, nil)
+        guard status == errSecSuccess || status == errSecDuplicateItem else {
+            return false
+        }
+        SecItemDelete(probe as CFDictionary)
+        return true
+    }()
+
+    struct KeychainError: LocalizedError {
         let status: OSStatus
 
         init(_ status: OSStatus) { self.status = status }
@@ -474,6 +571,17 @@ final class OpenAIAPIKeyStore: APIKeyStoring, @unchecked Sendable {
             SecCopyErrorMessageString(status, nil) as String?
                 ?? "Keychain operation failed (\(status))."
         }
+    }
+}
+
+final class OpenAIAPIKeyStore: KeychainAPIKeyStore, @unchecked Sendable {
+    static let shared = OpenAIAPIKeyStore()
+
+    init(
+        service: String = "com.adisapir.MacSpeedMonitor.openai",
+        account: String = "OpenAI API Key"
+    ) {
+        super.init(service: service, account: account)
     }
 }
 

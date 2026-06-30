@@ -446,6 +446,26 @@ final class AIRecognitionTests: XCTestCase {
         XCTAssertNil(try store.loadKey())
     }
 
+    func testKeychainStoreCachesLoadedKeyToAvoidRepeatedAccess() throws {
+        let service = "com.adisapir.MacSpeedMonitor.tests.\(UUID().uuidString)"
+        let store = OpenAIAPIKeyStore(service: service, account: "test")
+        let sideChannel = OpenAIAPIKeyStore(service: service, account: "test")
+        defer { try? store.removeKey() }
+
+        try store.saveKey("cached-key")
+        XCTAssertEqual(try store.loadKey(), "cached-key")
+
+        // Remove the item through a separate instance so `store`'s in-memory
+        // cache is left intact.
+        try sideChannel.removeKey()
+
+        // `store` keeps serving the cached value without touching the keychain
+        // again, while a brand-new instance sees the real (now empty) keychain.
+        XCTAssertEqual(try store.loadKey(), "cached-key")
+        XCTAssertTrue(store.hasKey)
+        XCTAssertNil(try OpenAIAPIKeyStore(service: service, account: "test").loadKey())
+    }
+
     func testExternalProviderAvailabilityDoesNotReadAPIKeys() {
         let openAIStore = CountingAPIKeyStore(key: "openai-key")
         let geminiStore = CountingAPIKeyStore(key: "gemini-key")

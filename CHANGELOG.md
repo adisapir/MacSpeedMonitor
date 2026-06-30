@@ -1,5 +1,9 @@
 # Change Log
 
+## 2026-06-30
+
+- Minimized macOS Keychain authorization prompts for AI API keys by storing them in the data protection keychain, caching the key in memory, and migrating keys saved by older versions automatically.
+
 ## 2026-06-29
 
 - Added an enhanced device scan that gathers ping TTL and HTTP server header details, with the option to scan unknown devices only or all devices.
